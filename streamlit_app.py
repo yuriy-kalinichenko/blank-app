@@ -114,23 +114,35 @@ def worldpop_population(lat, lon, radius_km, year=2025):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as response:
+    with urllib.request.urlopen(req, timeout=30) as response:
         submitted = json.loads(response.read().decode("utf-8"))
-    task_id = submitted["task_id"]
 
-    for _ in range(20):
+    task_id = submitted.get("task_id")
+    if not task_id:
+        raise RuntimeError(f"WorldPop did not return a task_id: {submitted}")
+
+    last_payload = None
+    for _ in range(30):
         status_req = urllib.request.Request(
             f"{WORLDPOP_URL}/tasks/{task_id}",
             headers={"User-Agent": USER_AGENT},
         )
-        with urllib.request.urlopen(status_req, timeout=20) as response:
-            result = json.loads(response.read().decode("utf-8"))
-        if result.get("status") == "success":
-            return result.get("result", {})
-        if result.get("status") == "failure":
-            raise RuntimeError(result.get("error") or "WorldPop request failed")
+        with urllib.request.urlopen(status_req, timeout=30) as response:
+            last_payload = json.loads(response.read().decode("utf-8"))
+
+        status = last_payload.get("status")
+        if status == "success":
+            result = last_payload.get("result")
+            if not isinstance(result, dict):
+                raise RuntimeError(f"WorldPop success response had no result object: {last_payload}")
+            if result.get("total_population") is None:
+                raise RuntimeError(f"WorldPop result had no total_population: {last_payload}")
+            return result
+        if status == "failure":
+            raise RuntimeError(last_payload.get("error") or f"WorldPop request failed: {last_payload}")
         time.sleep(1)
-    raise TimeoutError("WorldPop population request timed out")
+
+    raise TimeoutError(f"WorldPop population request timed out. Last response: {last_payload}")
 
 
 def distance_km(lat1, lon1, lat2, lon2):
@@ -180,16 +192,20 @@ if analyze:
                         retail_error = str(exc)
 
                     population = {}
-                    population_error = None
-                    try:
-                        # Provisional urban-drive proxy at ~24 km/h average effective speed:
-                        # 5 min ≈ 2 km, 10 min ≈ 4 km, 15 min ≈ 6 km.
-                        for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
-                            population[label] = worldpop_population(
+                    population_errors = {}
+                    # Provisional urban-drive proxy at ~24 km/h average effective speed:
+                    # 5 min ≈ 2 km, 10 min ≈ 4 km, 15 min ≈ 6 km.
+                    for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
+                        try:
+                            result = worldpop_population(
                                 geo["lat"], geo["lon"], radius, year=2025
                             )
-                    except Exception as exc:
-                        population_error = str(exc)
+                            if result.get("total_population") is not None:
+                                population[label] = result
+                            else:
+                                population_errors[label] = "No population value returned"
+                        except Exception as exc:
+                            population_errors[label] = str(exc)
 
                     st.session_state["analysis"] = {
                         "query": location.strip(),
@@ -197,7 +213,7 @@ if analyze:
                         "retail": retail,
                         "retail_error": retail_error,
                         "population": population,
-                        "population_error": population_error,
+                        "population_errors": population_errors,
                     }
             except Exception as exc:
                 st.error(f"Could not locate the site: {exc}")
@@ -266,7 +282,11 @@ if analysis:
     anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
     parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
 
-    live_modules = 3 if population else 2
+    population_complete = all(
+        population.get(label, {}).get("total_population") is not None
+        for label in ["5 min", "10 min", "15 min"]
+    )
+    live_modules = 3 if population_complete else 2
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Live data coverage", f"{live_modules} / 5 modules")
@@ -310,7 +330,7 @@ if analysis:
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
                 ["Nearby retail / competition", "Live", "OpenStreetMap POIs"],
-                ["Catchment population", "Live proxy" if population else "Unavailable", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
+                ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
                 ["Foot & car traffic", "Next layer", "Mobility / traffic provider"],
                 ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
                 ["Economics", "Ready", "User commercial assumptions"],
@@ -334,10 +354,15 @@ if analysis:
         d2.metric("10-min population proxy", f"{pop10:,.0f}" if pop10 is not None else "—")
         d3.metric("15-min population proxy", f"{pop15:,.0f}" if pop15 is not None else "—")
 
-        if population:
+        if population_complete:
             st.success(
                 "Population source: WorldPop 2025. Current zones are provisional circular "
                 "urban-drive proxies (~2/4/6 km for 5/10/15 minutes), not final road isochrones."
+            )
+        elif population:
+            st.warning(
+                "WorldPop returned population for only some catchment zones. "
+                "The available values are shown below; retry the analysis for the missing zones."
             )
             rows = []
             for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
@@ -358,8 +383,11 @@ if analysis:
                 "Retail and map analysis still works."
             )
 
-        if analysis.get("population_error"):
-            st.caption(f"WorldPop status: {analysis['population_error']}")
+        population_errors = analysis.get("population_errors", {})
+        if population_errors:
+            with st.expander("WorldPop diagnostics"):
+                for label, error in population_errors.items():
+                    st.write(f"{label}: {error}")
 
     with tab3:
         st.markdown("### Traffic & access")
