@@ -1,5 +1,6 @@
 import json
 import math
+import time
 import urllib.parse
 import urllib.request
 
@@ -11,6 +12,7 @@ st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
+WORLDPOP_URL = "https://api.worldpop.org/v2"
 
 
 @st.cache_data(ttl=3600)
@@ -83,6 +85,54 @@ def fetch_nearby_retail(lat, lon, radius=3000):
     return list(unique.values())
 
 
+def circle_polygon(lat, lon, radius_km, points=48):
+    coords = []
+    lat_scale = 110.574
+    lon_scale = 111.320 * math.cos(math.radians(lat))
+    for i in range(points + 1):
+        angle = 2 * math.pi * i / points
+        d_lat = (radius_km * math.sin(angle)) / lat_scale
+        d_lon = (radius_km * math.cos(angle)) / lon_scale
+        coords.append([lon + d_lon, lat + d_lat])
+    return {"type": "Polygon", "coordinates": [coords]}
+
+
+@st.cache_data(ttl=86400)
+def worldpop_population(lat, lon, radius_km, year=2025):
+    payload = {
+        "geojson": circle_polygon(lat, lon, radius_km),
+        "year": year,
+        "resolution": "1km",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{WORLDPOP_URL}/population",
+        data=body,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        submitted = json.loads(response.read().decode("utf-8"))
+    task_id = submitted["task_id"]
+
+    for _ in range(20):
+        status_req = urllib.request.Request(
+            f"{WORLDPOP_URL}/tasks/{task_id}",
+            headers={"User-Agent": USER_AGENT},
+        )
+        with urllib.request.urlopen(status_req, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if result.get("status") == "success":
+            return result.get("result", {})
+        if result.get("status") == "failure":
+            raise RuntimeError(result.get("error") or "WorldPop request failed")
+        time.sleep(1)
+    raise TimeoutError("WorldPop population request timed out")
+
+
 def distance_km(lat1, lon1, lat2, lon2):
     if lat2 is None or lon2 is None:
         return None
@@ -129,11 +179,25 @@ if analyze:
                         retail = []
                         retail_error = str(exc)
 
+                    population = {}
+                    population_error = None
+                    try:
+                        # Provisional urban-drive proxy at ~24 km/h average effective speed:
+                        # 5 min ≈ 2 km, 10 min ≈ 4 km, 15 min ≈ 6 km.
+                        for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
+                            population[label] = worldpop_population(
+                                geo["lat"], geo["lon"], radius, year=2025
+                            )
+                    except Exception as exc:
+                        population_error = str(exc)
+
                     st.session_state["analysis"] = {
                         "query": location.strip(),
                         "geo": geo,
                         "retail": retail,
                         "retail_error": retail_error,
+                        "population": population,
+                        "population_error": population_error,
                     }
             except Exception as exc:
                 st.error(f"Could not locate the site: {exc}")
@@ -143,6 +207,7 @@ analysis = st.session_state.get("analysis")
 if analysis:
     geo = analysis["geo"]
     retail = analysis["retail"]
+    population = analysis.get("population", {})
 
     st.divider()
     st.subheader(analysis["query"])
@@ -201,8 +266,10 @@ if analysis:
     anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
     parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
 
+    live_modules = 3 if population else 2
+
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Live data coverage", "2 / 5 modules")
+    c1.metric("Live data coverage", f"{live_modules} / 5 modules")
     c2.metric("Direct competitors / 1 km", len(comp_1km))
     c3.metric("Direct competitors / 3 km", len(comp_3km))
     c4.metric("Retail anchors / 3 km", len(anchor_3km))
@@ -243,7 +310,7 @@ if analysis:
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
                 ["Nearby retail / competition", "Live", "OpenStreetMap POIs"],
-                ["Catchment population", "Next layer", "5/10/15-minute drive-time"],
+                ["Catchment population", "Live proxy" if population else "Unavailable", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
                 ["Foot & car traffic", "Next layer", "Mobility / traffic provider"],
                 ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
                 ["Economics", "Ready", "User commercial assumptions"],
@@ -258,13 +325,41 @@ if analysis:
             "Target structure: population and households inside 5-, 10- and 15-minute drive-time "
             "areas, spending power, family/children profile and retail expenditure."
         )
+        pop5 = population.get("5 min", {}).get("total_population")
+        pop10 = population.get("10 min", {}).get("total_population")
+        pop15 = population.get("15 min", {}).get("total_population")
+
         d1, d2, d3 = st.columns(3)
-        d1.metric("5-min population", "—")
-        d2.metric("10-min population", "—")
-        d3.metric("15-min population", "—")
-        st.caption(
-            "These values remain blank until a reliable demographic and drive-time data source is connected."
-        )
+        d1.metric("5-min population proxy", f"{pop5:,.0f}" if pop5 is not None else "—")
+        d2.metric("10-min population proxy", f"{pop10:,.0f}" if pop10 is not None else "—")
+        d3.metric("15-min population proxy", f"{pop15:,.0f}" if pop15 is not None else "—")
+
+        if population:
+            st.success(
+                "Population source: WorldPop 2025. Current zones are provisional circular "
+                "urban-drive proxies (~2/4/6 km for 5/10/15 minutes), not final road isochrones."
+            )
+            rows = []
+            for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
+                item = population.get(label, {})
+                if item:
+                    rows.append({
+                        "Catchment": label,
+                        "Proxy radius, km": radius,
+                        "Population": round(item.get("total_population", 0)),
+                        "Area, km²": round(item.get("area_km2", 0), 1),
+                        "Density / km²": round(item.get("population_density", 0)),
+                    })
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.warning(
+                "WorldPop demographic layer is temporarily unavailable. "
+                "Retail and map analysis still works."
+            )
+
+        if analysis.get("population_error"):
+            st.caption(f"WorldPop status: {analysis['population_error']}")
 
     with tab3:
         st.markdown("### Traffic & access")
