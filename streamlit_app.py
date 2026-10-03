@@ -1,8 +1,287 @@
+import json
+import math
+import urllib.parse
+import urllib.request
+
+import pandas as pd
 import streamlit as st
 
+st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
+
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
+
+
+@st.cache_data(ttl=3600)
+def geocode_location(query):
+    params = urllib.parse.urlencode(
+        {"q": query, "format": "jsonv2", "limit": 1, "addressdetails": 1}
+    )
+    req = urllib.request.Request(
+        f"{NOMINATIM_URL}?{params}", headers={"User-Agent": USER_AGENT}
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    if not data:
+        return None
+    item = data[0]
+    return {
+        "lat": float(item["lat"]),
+        "lon": float(item["lon"]),
+        "display_name": item.get("display_name", query),
+    }
+
+
+@st.cache_data(ttl=3600)
+def fetch_nearby_retail(lat, lon, radius=3000):
+    query = f"""
+    [out:json][timeout:25];
+    (
+      nwr(around:{radius},{lat},{lon})["shop"~"toys|variety_store|department_store|supermarket|furniture|houseware|gift|stationery"];
+      nwr(around:{radius},{lat},{lon})["shop"="mall"];
+      nwr(around:{radius},{lat},{lon})["amenity"="parking"];
+    );
+    out center tags;
+    """
+    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    req = urllib.request.Request(
+        OVERPASS_URL,
+        data=data,
+        headers={"User-Agent": USER_AGENT},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=35) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    rows = []
+    for element in payload.get("elements", []):
+        tags = element.get("tags", {})
+        point_lat = element.get("lat") or element.get("center", {}).get("lat")
+        point_lon = element.get("lon") or element.get("center", {}).get("lon")
+        rows.append(
+            {
+                "name": tags.get("name") or tags.get("brand") or "Unnamed",
+                "shop": tags.get("shop"),
+                "amenity": tags.get("amenity"),
+                "lat": point_lat,
+                "lon": point_lon,
+            }
+        )
+    return rows
+
+
+def distance_km(lat1, lon1, lat2, lon2):
+    if lat2 is None or lon2 is None:
+        return None
+    radius = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(d_lon / 2) ** 2
+    )
+    return 2 * radius * math.asin(math.sqrt(a))
+
+
 st.title("Jumbo Location Analyzer")
+st.caption(
+    "Retail site-selection prototype inspired by leading location-intelligence workflows: "
+    "trade area, demand, traffic, competition, economics and scoring."
+)
 
-location = st.text_input("Enter address or shopping center")
+location = st.text_input(
+    "Enter address or shopping center",
+    placeholder="Example: Karavan Mall, Kyiv",
+)
 
-if st.button("Analyze location"):
-    st.write("Analyzing:", location)
+analyze = st.button("Analyze location", type="primary")
+
+if analyze:
+    if not location.strip():
+        st.warning("Enter a location first.")
+    else:
+        with st.spinner("Locating the site and scanning nearby retail..."):
+            try:
+                geo = geocode_location(location.strip())
+                if geo is None:
+                    st.error("Location not found. Try a more complete address.")
+                else:
+                    try:
+                        retail = fetch_nearby_retail(geo["lat"], geo["lon"])
+                        retail_error = None
+                    except Exception as exc:
+                        retail = []
+                        retail_error = str(exc)
+
+                    st.session_state["analysis"] = {
+                        "query": location.strip(),
+                        "geo": geo,
+                        "retail": retail,
+                        "retail_error": retail_error,
+                    }
+            except Exception as exc:
+                st.error(f"Could not locate the site: {exc}")
+
+analysis = st.session_state.get("analysis")
+
+if analysis:
+    geo = analysis["geo"]
+    retail = analysis["retail"]
+
+    st.divider()
+    st.subheader(analysis["query"])
+    st.caption(geo["display_name"])
+
+    map_df = pd.DataFrame([{"lat": geo["lat"], "lon": geo["lon"]}])
+    st.map(map_df, zoom=13)
+
+    comparable_types = {
+        "toys",
+        "variety_store",
+        "department_store",
+        "furniture",
+        "houseware",
+        "gift",
+        "stationery",
+    }
+    anchor_types = {"supermarket", "department_store", "mall"}
+
+    comparable = [r for r in retail if r.get("shop") in comparable_types]
+    anchors = [r for r in retail if r.get("shop") in anchor_types]
+    parking = [r for r in retail if r.get("amenity") == "parking"]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Overall score", "—")
+    c2.metric("Comparable retail / 3 km", len(comparable))
+    c3.metric("Retail anchors / 3 km", len(anchors))
+    c4.metric("Parking POIs / 3 km", len(parking))
+
+    if analysis.get("retail_error"):
+        st.warning(
+            "The map loaded, but the public OpenStreetMap retail layer is temporarily unavailable."
+        )
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        [
+            "Executive summary",
+            "Catchment & demand",
+            "Traffic & access",
+            "Competition",
+            "Commercial & economics",
+        ]
+    )
+
+    with tab1:
+        st.markdown("### Decision dashboard")
+        st.info(
+            "This first live version already resolves the site on a map and scans nearby retail. "
+            "The final Jumbo score will only appear when the remaining data layers are connected."
+        )
+        coverage = pd.DataFrame(
+            [
+                ["Location / map", "Live", "OpenStreetMap geocoding"],
+                ["Nearby retail / competition", "Live", "OpenStreetMap POIs"],
+                ["Catchment population", "Next layer", "5/10/15-minute drive-time"],
+                ["Foot & car traffic", "Next layer", "Mobility / traffic provider"],
+                ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
+                ["Economics", "Ready", "User commercial assumptions"],
+            ],
+            columns=["Module", "Status", "Source / method"],
+        )
+        st.dataframe(coverage, use_container_width=True, hide_index=True)
+
+    with tab2:
+        st.markdown("### Catchment & demand")
+        st.write(
+            "Target structure: population and households inside 5-, 10- and 15-minute drive-time "
+            "areas, spending power, family/children profile and retail expenditure."
+        )
+        d1, d2, d3 = st.columns(3)
+        d1.metric("5-min population", "—")
+        d2.metric("10-min population", "—")
+        d3.metric("15-min population", "—")
+        st.caption(
+            "These values remain blank until a reliable demographic and drive-time data source is connected."
+        )
+
+    with tab3:
+        st.markdown("### Traffic & access")
+        a1, a2, a3 = st.columns(3)
+        a1.metric("Parking POIs / 3 km", len(parking))
+        a2.metric("Car traffic", "—")
+        a3.metric("Foot traffic", "—")
+        st.write(
+            "Final model: road visibility, access/egress, parking capacity, public transport, "
+            "vehicle flows and pedestrian/mobile visitation."
+        )
+
+    with tab4:
+        st.markdown("### Competition & retail fabric")
+        if comparable:
+            comp_rows = []
+            for item in comparable:
+                dist = distance_km(
+                    geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+                )
+                comp_rows.append(
+                    {
+                        "Name": item["name"],
+                        "Type": item.get("shop") or "retail",
+                        "Distance, km": round(dist, 2) if dist is not None else None,
+                    }
+                )
+            comp_df = pd.DataFrame(comp_rows).sort_values(
+                "Distance, km", na_position="last"
+            )
+            st.dataframe(comp_df, use_container_width=True, hide_index=True)
+        else:
+            st.write("No comparable retail POIs were found in the public OSM layer within 3 km.")
+        st.caption(
+            "This is an initial public-data scan, not yet the final competitor/cannibalization model."
+        )
+
+    with tab5:
+        st.markdown("### Commercial & economics")
+        e1, e2, e3 = st.columns(3)
+        area = e1.number_input("Store area, m²", min_value=0.0, value=0.0, step=100.0)
+        rent = e2.number_input(
+            "Rent, €/m²/month", min_value=0.0, value=0.0, step=0.5
+        )
+        capex = e3.number_input("CAPEX, €", min_value=0.0, value=0.0, step=10000.0)
+
+        e4, e5, e6 = st.columns(3)
+        annual_sales = e4.number_input(
+            "Expected annual sales, €", min_value=0.0, value=0.0, step=100000.0
+        )
+        gross_margin = e5.number_input(
+            "Gross margin, %", min_value=0.0, max_value=100.0, value=0.0, step=0.5
+        )
+        other_opex = e6.number_input(
+            "Other annual OPEX, €", min_value=0.0, value=0.0, step=10000.0
+        )
+
+        annual_rent = area * rent * 12
+        gross_profit = annual_sales * gross_margin / 100
+        ebitda = gross_profit - annual_rent - other_opex
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Annual rent", f"€{annual_rent:,.0f}")
+        k2.metric("Estimated EBITDA", f"€{ebitda:,.0f}")
+        if ebitda > 0 and capex > 0:
+            k3.metric("CAPEX payback", f"{capex / ebitda:.1f} years")
+        else:
+            k3.metric("CAPEX payback", "—")
+
+        if annual_sales > 0:
+            st.caption(
+                f"Occupancy cost: {annual_rent / annual_sales * 100:.1f}% of sales."
+            )
+
+st.divider()
+st.caption(
+    "Prototype. Public map/POI data can be incomplete; investment decisions should use verified commercial, "
+    "traffic and demographic sources."
+)
