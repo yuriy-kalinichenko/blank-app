@@ -94,6 +94,7 @@ st.caption(
 
 location = st.text_input(
     "Enter address or shopping center",
+    value="Karavan Mall, Kyiv",
     placeholder="Example: Karavan Mall, Kyiv",
 )
 
