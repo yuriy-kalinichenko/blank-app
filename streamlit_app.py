@@ -217,7 +217,11 @@ def load_saved_scenarios():
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, dict) else default_scenarios
+        merged = {}
+        if isinstance(data, dict):
+            merged.update(data)
+        merged.update(default_scenarios)
+        return merged
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return default_scenarios
 
@@ -676,6 +680,28 @@ if analysis:
             "This module uses commercial assumptions entered by the user. "
             "It does not invent rent, CAPEX, sales or margin from public map data."
         )
+
+        if st.button(
+            "Load Base Scenario",
+            use_container_width=True,
+            key="econ_load_base_direct",
+        ):
+            base = {
+                "econ_currency": "EUR",
+                "econ_area": 4500.0,
+                "econ_rent": 5.0,
+                "econ_capex": 2500000.0,
+                "econ_sales": 5000000.0,
+                "econ_margin": 50.0,
+                "econ_payroll": 250000.0,
+                "econ_utilities": 12000.0,
+                "econ_logistics": 20000.0,
+                "econ_other_opex": 100000.0,
+                "econ_scenario_name": "Karavan Mall, Kyiv - Base",
+            }
+            for state_key, state_value in base.items():
+                st.session_state[state_key] = state_value
+            st.rerun()
 
         saved_scenarios = load_saved_scenarios()
         if saved_scenarios:
