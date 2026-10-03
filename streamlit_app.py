@@ -135,8 +135,17 @@ if analysis:
     st.subheader(analysis["query"])
     st.caption(geo["display_name"])
 
-    map_df = pd.DataFrame([{"lat": geo["lat"], "lon": geo["lon"]}])
+    map_points = [{"lat": geo["lat"], "lon": geo["lon"]}]
+    for item in retail:
+        if item.get("lat") is not None and item.get("lon") is not None:
+            map_points.append({"lat": item["lat"], "lon": item["lon"]})
+    map_df = pd.DataFrame(map_points)
     st.map(map_df, zoom=13)
+
+    st.caption(
+        f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
+        f"Mapped POIs: {max(len(map_points) - 1, 0)}"
+    )
 
     comparable_types = {
         "toys",
@@ -149,15 +158,27 @@ if analysis:
     }
     anchor_types = {"supermarket", "department_store", "mall"}
 
+    for item in retail:
+        item["distance_km"] = distance_km(
+            geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+        )
+
     comparable = [r for r in retail if r.get("shop") in comparable_types]
     anchors = [r for r in retail if r.get("shop") in anchor_types]
     parking = [r for r in retail if r.get("amenity") == "parking"]
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Overall score", "—")
-    c2.metric("Comparable retail / 3 km", len(comparable))
-    c3.metric("Retail anchors / 3 km", len(anchors))
-    c4.metric("Parking POIs / 3 km", len(parking))
+    comp_1km = [r for r in comparable if r.get("distance_km") is not None and r["distance_km"] <= 1]
+    comp_3km = [r for r in comparable if r.get("distance_km") is not None and r["distance_km"] <= 3]
+    anchor_1km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 1]
+    anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
+    parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Live data coverage", "2 / 5 modules")
+    c2.metric("Comparable retail / 1 km", len(comp_1km))
+    c3.metric("Comparable retail / 3 km", len(comp_3km))
+    c4.metric("Retail anchors / 3 km", len(anchor_3km))
+    c5.metric("Parking POIs / 1 km", len(parking_1km))
 
     if analysis.get("retail_error"):
         st.warning(
@@ -177,9 +198,19 @@ if analysis:
     with tab1:
         st.markdown("### Decision dashboard")
         st.info(
-            "This first live version already resolves the site on a map and scans nearby retail. "
-            "The final Jumbo score will only appear when the remaining data layers are connected."
+            "Live now: exact site geocoding, mapped nearby retail fabric and commercial economics. "
+            "Next: drive-time catchment, demographic demand, traffic and a calibrated Jumbo sales model."
         )
+
+        if len(comp_1km) == 0:
+            st.success("Competition signal: no comparable retail POIs detected within 1 km in the public OSM layer.")
+        elif len(comp_1km) <= 3:
+            st.warning(f"Competition signal: {len(comp_1km)} comparable retail POI(s) detected within 1 km.")
+        else:
+            st.warning(f"Competition signal: {len(comp_1km)} comparable retail POIs detected within 1 km — review density carefully.")
+
+        if len(anchor_1km) > 0:
+            st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
         coverage = pd.DataFrame(
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
@@ -209,10 +240,11 @@ if analysis:
 
     with tab3:
         st.markdown("### Traffic & access")
-        a1, a2, a3 = st.columns(3)
-        a1.metric("Parking POIs / 3 km", len(parking))
-        a2.metric("Car traffic", "—")
-        a3.metric("Foot traffic", "—")
+        a1, a2, a3, a4 = st.columns(4)
+        a1.metric("Parking POIs / 1 km", len(parking_1km))
+        a2.metric("Retail anchors / 1 km", len(anchor_1km))
+        a3.metric("Car traffic", "—")
+        a4.metric("Foot traffic", "—")
         st.write(
             "Final model: road visibility, access/egress, parking capacity, public transport, "
             "vehicle flows and pedestrian/mobile visitation."
@@ -223,9 +255,7 @@ if analysis:
         if comparable:
             comp_rows = []
             for item in comparable:
-                dist = distance_km(
-                    geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
-                )
+                dist = item.get("distance_km")
                 comp_rows.append(
                     {
                         "Name": item["name"],
