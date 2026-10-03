@@ -199,12 +199,27 @@ SCENARIO_FILE = "saved_scenarios.json"
 
 
 def load_saved_scenarios():
+    default_scenarios = {
+        "Karavan Mall, Kyiv - Base": {
+            "location": "Karavan Mall, Kyiv",
+            "currency": "EUR",
+            "area": 4500.0,
+            "rent": 5.0,
+            "capex": 2500000.0,
+            "annual_sales": 5000000.0,
+            "gross_margin": 50.0,
+            "payroll": 250000.0,
+            "utilities": 12000.0,
+            "logistics": 20000.0,
+            "other_opex": 100000.0,
+        }
+    }
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, dict) else {}
+        return data if isinstance(data, dict) else default_scenarios
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
+        return default_scenarios
 
 
 def persist_saved_scenarios(data):
