@@ -13,6 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
+BUILD_VERSION = "2026-10-03-v4"
 
 
 @st.cache_data(ttl=3600)
@@ -161,6 +162,7 @@ def distance_km(lat1, lon1, lat2, lon2):
 
 
 st.title("Jumbo Location Analyzer")
+st.caption(f"Build: {BUILD_VERSION}")
 st.caption(
     "Retail site-selection prototype inspired by leading location-intelligence workflows: "
     "trade area, demand, traffic, competition, economics and scoring."
@@ -341,6 +343,7 @@ if analysis:
 
     with tab2:
         st.markdown("### Catchment & demand")
+        st.caption(f"Build: {BUILD_VERSION}")
         st.write(
             "Target structure: population and households inside 5-, 10- and 15-minute drive-time "
             "areas, spending power, family/children profile and retail expenditure."
@@ -384,10 +387,20 @@ if analysis:
             )
 
         population_errors = analysis.get("population_errors", {})
+        if population_complete:
+            st.success("WorldPop status: all 3 catchment population values loaded.")
+        elif population:
+            loaded_labels = ", ".join(sorted(population.keys()))
+            st.warning(f"WorldPop status: partial data loaded for {loaded_labels}.")
+        else:
+            st.error("WorldPop status: no population values loaded.")
+
         if population_errors:
-            with st.expander("WorldPop diagnostics"):
-                for label, error in population_errors.items():
-                    st.write(f"{label}: {error}")
+            st.markdown("#### WorldPop diagnostics")
+            for label, error in population_errors.items():
+                st.code(f"{label}: {error}")
+        elif not population_complete:
+            st.code("No detailed WorldPop error was captured in this build.")
 
     with tab3:
         st.markdown("### Traffic & access")
