@@ -13,7 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v6"
+BUILD_VERSION = "2026-10-03-v7"
 
 
 @st.cache_data(ttl=3600)
@@ -639,39 +639,190 @@ if analysis:
 
     with tab5:
         st.markdown("### Commercial & economics")
-        e1, e2, e3 = st.columns(3)
-        area = e1.number_input("Store area, m²", min_value=0.0, value=0.0, step=100.0)
-        rent = e2.number_input(
-            "Rent, €/m²/month", min_value=0.0, value=0.0, step=0.5
+        st.caption(f"Build: {BUILD_VERSION}")
+        st.info(
+            "This module uses commercial assumptions entered by the user. "
+            "It does not invent rent, CAPEX, sales or margin from public map data."
         )
-        capex = e3.number_input("CAPEX, €", min_value=0.0, value=0.0, step=10000.0)
+
+        currency = st.selectbox(
+            "Currency",
+            ["EUR", "USD", "UAH"],
+            index=0,
+            key="econ_currency",
+        )
+        currency_symbol = {"EUR": "€", "USD": "$", "UAH": "₴"}[currency]
+
+        e1, e2, e3 = st.columns(3)
+        area = e1.number_input(
+            "Store area, m²",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            key="econ_area",
+        )
+        rent = e2.number_input(
+            f"Rent, {currency}/m²/month",
+            min_value=0.0,
+            value=0.0,
+            step=0.5,
+            key="econ_rent",
+        )
+        capex = e3.number_input(
+            f"CAPEX, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=10000.0,
+            key="econ_capex",
+        )
 
         e4, e5, e6 = st.columns(3)
         annual_sales = e4.number_input(
-            "Expected annual sales, €", min_value=0.0, value=0.0, step=100000.0
+            f"Expected annual sales, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=100000.0,
+            key="econ_sales",
         )
         gross_margin = e5.number_input(
-            "Gross margin, %", min_value=0.0, max_value=100.0, value=0.0, step=0.5
+            "Gross margin, %",
+            min_value=0.0,
+            max_value=100.0,
+            value=0.0,
+            step=0.5,
+            key="econ_margin",
         )
-        other_opex = e6.number_input(
-            "Other annual OPEX, €", min_value=0.0, value=0.0, step=10000.0
+        payroll = e6.number_input(
+            f"Annual payroll, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=10000.0,
+            key="econ_payroll",
+        )
+
+        e7, e8, e9 = st.columns(3)
+        utilities = e7.number_input(
+            f"Utilities & maintenance / year, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=5000.0,
+            key="econ_utilities",
+        )
+        logistics = e8.number_input(
+            f"Local logistics / year, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=5000.0,
+            key="econ_logistics",
+        )
+        other_opex = e9.number_input(
+            f"Other annual OPEX, {currency}",
+            min_value=0.0,
+            value=0.0,
+            step=5000.0,
+            key="econ_other_opex",
         )
 
         annual_rent = area * rent * 12
         gross_profit = annual_sales * gross_margin / 100
-        ebitda = gross_profit - annual_rent - other_opex
+        total_fixed_opex = annual_rent + payroll + utilities + logistics + other_opex
+        ebitda = gross_profit - total_fixed_opex
 
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Annual rent", f"€{annual_rent:,.0f}")
-        k2.metric("Estimated EBITDA", f"€{ebitda:,.0f}")
-        if ebitda > 0 and capex > 0:
-            k3.metric("CAPEX payback", f"{capex / ebitda:.1f} years")
+        sales_density = annual_sales / area if area > 0 else None
+        occupancy_cost = annual_rent / annual_sales * 100 if annual_sales > 0 else None
+        ebitda_margin = ebitda / annual_sales * 100 if annual_sales > 0 else None
+        payback = capex / ebitda if ebitda > 0 and capex > 0 else None
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Annual rent", f"{currency_symbol}{annual_rent:,.0f}")
+        k2.metric("Gross profit", f"{currency_symbol}{gross_profit:,.0f}")
+        k3.metric("Estimated EBITDA", f"{currency_symbol}{ebitda:,.0f}")
+        k4.metric(
+            "EBITDA margin",
+            f"{ebitda_margin:.1f}%" if ebitda_margin is not None else "—",
+        )
+
+        k5, k6, k7, k8 = st.columns(4)
+        k5.metric(
+            "Sales density",
+            f"{currency_symbol}{sales_density:,.0f}/m²" if sales_density is not None else "—",
+        )
+        k6.metric(
+            "Occupancy cost",
+            f"{occupancy_cost:.1f}%" if occupancy_cost is not None else "—",
+        )
+        k7.metric(
+            "CAPEX payback",
+            f"{payback:.1f} years" if payback is not None else "—",
+        )
+        k8.metric("Total fixed OPEX", f"{currency_symbol}{total_fixed_opex:,.0f}")
+
+        assumptions_complete = (
+            area > 0
+            and rent > 0
+            and annual_sales > 0
+            and gross_margin > 0
+        )
+
+        if assumptions_complete:
+            scenarios = []
+            for scenario, sales_factor in [
+                ("Conservative", 0.85),
+                ("Base", 1.00),
+                ("Upside", 1.15),
+            ]:
+                scenario_sales = annual_sales * sales_factor
+                scenario_gp = scenario_sales * gross_margin / 100
+                scenario_ebitda = scenario_gp - total_fixed_opex
+                scenario_margin = (
+                    scenario_ebitda / scenario_sales * 100
+                    if scenario_sales > 0
+                    else None
+                )
+                scenario_payback = (
+                    capex / scenario_ebitda
+                    if capex > 0 and scenario_ebitda > 0
+                    else None
+                )
+                scenarios.append(
+                    {
+                        "Scenario": scenario,
+                        f"Sales ({currency})": round(scenario_sales),
+                        f"EBITDA ({currency})": round(scenario_ebitda),
+                        "EBITDA margin": (
+                            f"{scenario_margin:.1f}%"
+                            if scenario_margin is not None
+                            else "—"
+                        ),
+                        "CAPEX payback": (
+                            f"{scenario_payback:.1f} years"
+                            if scenario_payback is not None
+                            else "—"
+                        ),
+                    }
+                )
+
+            st.markdown("#### Sales sensitivity")
+            st.dataframe(
+                pd.DataFrame(scenarios),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            if ebitda <= 0:
+                st.error(
+                    "Base case EBITDA is negative with the current assumptions."
+                )
+            elif payback is not None:
+                st.success(
+                    f"Base case is EBITDA-positive with estimated CAPEX payback of {payback:.1f} years."
+                )
+            else:
+                st.success("Base case is EBITDA-positive.")
         else:
-            k3.metric("CAPEX payback", "—")
-
-        if annual_sales > 0:
-            st.caption(
-                f"Occupancy cost: {annual_rent / annual_sales * 100:.1f}% of sales."
+            st.warning(
+                "Enter at least store area, rent, annual sales and gross margin "
+                "to activate the scenario analysis."
             )
 
 st.divider()
