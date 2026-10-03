@@ -523,19 +523,23 @@ if analysis:
                 "not a measured traffic-volume score."
             )
         else:
-            st.warning("Access infrastructure data is incomplete for this run.")
+            st.warning(
+                "Road/transit data is incomplete in this run. Missing data is shown as 'No data' "
+                "and is not treated as a real zero."
+            )
 
         if named_major_roads:
             st.write("Major road context: " + ", ".join(named_major_roads[:8]))
 
+        access_data_ok = not analysis.get("access_error") and bool(access)
         score_table = pd.DataFrame(
             [
-                ["Major-road proximity", road_score, 35],
-                ["Road-network choice", network_score, 15],
-                ["Public transport", transit_score, 25],
+                ["Major-road proximity", road_score if access_data_ok else "No data", 35],
+                ["Road-network choice", network_score if access_data_ok else "No data", 15],
+                ["Public transport", transit_score if access_data_ok else "No data", 25],
                 ["Parking presence", parking_score, 25],
             ],
-            columns=["Access component", "Points", "Max"],
+            columns=["Access component", "Current points", "Maximum weight"],
         )
         st.dataframe(score_table, use_container_width=True, hide_index=True)
 
