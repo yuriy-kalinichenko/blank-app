@@ -1,6 +1,8 @@
 import streamlit as st
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
+st.title("Jumbo Location Analyzer")
+
+location = st.text_input("Enter address or shopping center")
+
+if st.button("Analyze location"):
+    st.write("Analyzing:", location)
