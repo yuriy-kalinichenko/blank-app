@@ -13,7 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v4"
+BUILD_VERSION = "2026-10-03-v5"
 
 
 @st.cache_data(ttl=3600)
@@ -82,6 +82,55 @@ def fetch_nearby_retail(lat, lon, radius=3000):
             key = (name, category)
         else:
             key = (category, lat_key, lon_key)
+        unique[key] = row
+    return list(unique.values())
+
+
+@st.cache_data(ttl=3600)
+def fetch_access_context(lat, lon, radius=1500):
+    query = f"""
+    [out:json][timeout:25];
+    (
+      way(around:{radius},{lat},{lon})["highway"~"motorway|trunk|primary|secondary"];
+      nwr(around:{radius},{lat},{lon})["highway"="bus_stop"];
+      nwr(around:{radius},{lat},{lon})["public_transport"="platform"];
+      nwr(around:{radius},{lat},{lon})["railway"~"tram_stop|station|halt|subway_entrance"];
+    );
+    out center tags;
+    """
+    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    req = urllib.request.Request(
+        OVERPASS_URL,
+        data=data,
+        headers={"User-Agent": USER_AGENT},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=35) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    rows = []
+    for element in payload.get("elements", []):
+        tags = element.get("tags", {})
+        point_lat = element.get("lat") or element.get("center", {}).get("lat")
+        point_lon = element.get("lon") or element.get("center", {}).get("lon")
+        rows.append(
+            {
+                "name": tags.get("name") or tags.get("ref") or "Unnamed",
+                "highway": tags.get("highway"),
+                "public_transport": tags.get("public_transport"),
+                "railway": tags.get("railway"),
+                "lat": point_lat,
+                "lon": point_lon,
+            }
+        )
+
+    unique = {}
+    for row in rows:
+        category = row.get("highway") or row.get("public_transport") or row.get("railway") or ""
+        name = (row.get("name") or "").strip().lower()
+        lat_key = round(row.get("lat"), 4) if row.get("lat") is not None else None
+        lon_key = round(row.get("lon"), 4) if row.get("lon") is not None else None
+        key = (category, name, lat_key, lon_key)
         unique[key] = row
     return list(unique.values())
 
@@ -193,6 +242,13 @@ if analyze:
                         retail = []
                         retail_error = str(exc)
 
+                    access = []
+                    access_error = None
+                    try:
+                        access = fetch_access_context(geo["lat"], geo["lon"])
+                    except Exception as exc:
+                        access_error = str(exc)
+
                     population = {}
                     population_errors = {}
                     # Provisional urban-drive proxy at ~24 km/h average effective speed:
@@ -216,6 +272,8 @@ if analyze:
                         "retail_error": retail_error,
                         "population": population,
                         "population_errors": population_errors,
+                        "access": access,
+                        "access_error": access_error,
                     }
             except Exception as exc:
                 st.error(f"Could not locate the site: {exc}")
@@ -226,6 +284,7 @@ if analysis:
     geo = analysis["geo"]
     retail = analysis["retail"]
     population = analysis.get("population", {})
+    access = analysis.get("access", [])
 
     st.divider()
     st.subheader(analysis["query"])
@@ -288,7 +347,48 @@ if analysis:
         population.get(label, {}).get("total_population") is not None
         for label in ["5 min", "10 min", "15 min"]
     )
-    live_modules = 3 if population_complete else 2
+
+    for item in access:
+        item["distance_km"] = distance_km(
+            geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+        )
+
+    major_road_types = {"motorway", "trunk", "primary", "secondary"}
+    major_roads = [r for r in access if r.get("highway") in major_road_types]
+    transit_stops = [
+        r for r in access
+        if r.get("highway") == "bus_stop"
+        or r.get("public_transport") == "platform"
+        or r.get("railway") in {"tram_stop", "station", "halt", "subway_entrance"}
+    ]
+    named_major_roads = sorted({
+        (r.get("name") or "").strip()
+        for r in major_roads
+        if (r.get("name") or "").strip() and (r.get("name") or "").strip().lower() != "unnamed"
+    })
+    nearest_major_road_km = min(
+        [r["distance_km"] for r in major_roads if r.get("distance_km") is not None],
+        default=None,
+    )
+
+    road_score = 0
+    if nearest_major_road_km is not None:
+        if nearest_major_road_km <= 0.25:
+            road_score = 35
+        elif nearest_major_road_km <= 0.5:
+            road_score = 30
+        elif nearest_major_road_km <= 1.0:
+            road_score = 22
+        else:
+            road_score = 12
+
+    network_score = min(15, len(named_major_roads) * 3)
+    transit_score = min(25, len(transit_stops) * 2)
+    parking_score = min(25, len(parking_1km) * 2)
+    access_score = min(100, road_score + network_score + transit_score + parking_score)
+
+    access_complete = bool(access) and nearest_major_road_km is not None
+    live_modules = 2 + (1 if population_complete else 0) + (1 if access_complete else 0)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Live data coverage", f"{live_modules} / 5 modules")
@@ -333,7 +433,8 @@ if analysis:
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
                 ["Nearby retail / competition", "Live", "OpenStreetMap POIs"],
                 ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
-                ["Foot & car traffic", "Next layer", "Mobility / traffic provider"],
+                ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
+                ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
                 ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
                 ["Economics", "Ready", "User commercial assumptions"],
             ],
@@ -404,15 +505,47 @@ if analysis:
 
     with tab3:
         st.markdown("### Traffic & access")
-        a1, a2, a3, a4 = st.columns(4)
-        a1.metric("Parking POIs / 1 km", len(parking_1km))
-        a2.metric("Retail anchors / 1 km", len(anchor_1km))
-        a3.metric("Car traffic", "—")
-        a4.metric("Foot traffic", "—")
-        st.write(
-            "Final model: road visibility, access/egress, parking capacity, public transport, "
-            "vehicle flows and pedestrian/mobile visitation."
+        st.caption(f"Build: {BUILD_VERSION}")
+
+        a1, a2, a3, a4, a5 = st.columns(5)
+        a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "—")
+        a2.metric(
+            "Nearest major road",
+            f"{nearest_major_road_km:.2f} km" if nearest_major_road_km is not None else "—",
         )
+        a3.metric("Named major roads / 1.5 km", len(named_major_roads))
+        a4.metric("Transit stops / 1.5 km", len(transit_stops))
+        a5.metric("Parking POIs / 1 km", len(parking_1km))
+
+        if access_complete:
+            st.success(
+                "Access layer is live from OpenStreetMap. The score is an infrastructure proxy, "
+                "not a measured traffic-volume score."
+            )
+        else:
+            st.warning("Access infrastructure data is incomplete for this run.")
+
+        if named_major_roads:
+            st.write("Major road context: " + ", ".join(named_major_roads[:8]))
+
+        score_table = pd.DataFrame(
+            [
+                ["Major-road proximity", road_score, 35],
+                ["Road-network choice", network_score, 15],
+                ["Public transport", transit_score, 25],
+                ["Parking presence", parking_score, 25],
+            ],
+            columns=["Access component", "Points", "Max"],
+        )
+        st.dataframe(score_table, use_container_width=True, hide_index=True)
+
+        st.info(
+            "Car traffic volume and footfall are still intentionally blank. "
+            "Those require a measured mobility/traffic source; we will not infer them from roads alone."
+        )
+
+        if analysis.get("access_error"):
+            st.code(f"Access diagnostics: {analysis['access_error']}")
 
     with tab4:
         st.markdown("### Competition & retail fabric")
