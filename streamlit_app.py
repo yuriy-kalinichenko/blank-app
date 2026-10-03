@@ -13,7 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v7"
+BUILD_VERSION = "2026-10-03-v8"
 
 
 @st.cache_data(ttl=3600)
@@ -193,6 +193,23 @@ def worldpop_population(lat, lon, radius_km, year=2025):
         time.sleep(1)
 
     raise TimeoutError(f"WorldPop population request timed out. Last response: {last_payload}")
+
+
+SCENARIO_FILE = "saved_scenarios.json"
+
+
+def load_saved_scenarios():
+    try:
+        with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def persist_saved_scenarios(data):
+    with open(SCENARIO_FILE, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
 
 
 def distance_km(lat1, lon1, lat2, lon2):
@@ -645,6 +662,39 @@ if analysis:
             "It does not invent rent, CAPEX, sales or margin from public map data."
         )
 
+        saved_scenarios = load_saved_scenarios()
+        if saved_scenarios:
+            s1, s2 = st.columns([3, 1])
+            selected_scenario = s1.selectbox(
+                "Saved scenarios",
+                ["—"] + sorted(saved_scenarios.keys()),
+                key="econ_saved_scenario",
+            )
+            load_clicked = s2.button(
+                "Load scenario",
+                use_container_width=True,
+                key="econ_load_scenario",
+            )
+            if load_clicked and selected_scenario != "—":
+                saved = saved_scenarios[selected_scenario]
+                field_map = {
+                    "currency": "econ_currency",
+                    "area": "econ_area",
+                    "rent": "econ_rent",
+                    "capex": "econ_capex",
+                    "annual_sales": "econ_sales",
+                    "gross_margin": "econ_margin",
+                    "payroll": "econ_payroll",
+                    "utilities": "econ_utilities",
+                    "logistics": "econ_logistics",
+                    "other_opex": "econ_other_opex",
+                }
+                for source_key, state_key in field_map.items():
+                    if source_key in saved:
+                        st.session_state[state_key] = saved[source_key]
+                st.session_state["econ_scenario_name"] = selected_scenario
+                st.rerun()
+
         currency = st.selectbox(
             "Currency",
             ["EUR", "USD", "UAH"],
@@ -722,6 +772,41 @@ if analysis:
             step=5000.0,
             key="econ_other_opex",
         )
+
+        save_col1, save_col2 = st.columns([3, 1])
+        scenario_name = save_col1.text_input(
+            "Scenario name",
+            value=f"{analysis['query']} - Base",
+            key="econ_scenario_name",
+        )
+        if save_col2.button(
+            "Save Scenario",
+            type="primary",
+            use_container_width=True,
+            key="econ_save_scenario",
+        ):
+            clean_name = scenario_name.strip()
+            if not clean_name:
+                st.warning("Enter a scenario name before saving.")
+            else:
+                saved_scenarios[clean_name] = {
+                    "location": analysis["query"],
+                    "currency": currency,
+                    "area": area,
+                    "rent": rent,
+                    "capex": capex,
+                    "annual_sales": annual_sales,
+                    "gross_margin": gross_margin,
+                    "payroll": payroll,
+                    "utilities": utilities,
+                    "logistics": logistics,
+                    "other_opex": other_opex,
+                }
+                try:
+                    persist_saved_scenarios(saved_scenarios)
+                    st.success(f"Scenario saved: {clean_name}")
+                except OSError as exc:
+                    st.error(f"Could not save scenario on this app instance: {exc}")
 
         annual_rent = area * rent * 12
         gross_profit = annual_sales * gross_margin / 100
