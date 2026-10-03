@@ -68,7 +68,19 @@ def fetch_nearby_retail(lat, lon, radius=3000):
                 "lon": point_lon,
             }
         )
-    return rows
+    # De-duplicate OSM objects that can represent the same real-world place
+    unique = {}
+    for row in rows:
+        name = (row.get("name") or "").strip().lower()
+        category = row.get("shop") or row.get("amenity") or ""
+        lat_key = round(row.get("lat"), 4) if row.get("lat") is not None else None
+        lon_key = round(row.get("lon"), 4) if row.get("lon") is not None else None
+        if name and name != "unnamed":
+            key = (name, category)
+        else:
+            key = (category, lat_key, lon_key)
+        unique[key] = row
+    return list(unique.values())
 
 
 def distance_km(lat1, lon1, lat2, lon2):
@@ -148,10 +160,12 @@ if analysis:
         f"Mapped POIs: {max(len(map_points) - 1, 0)}"
     )
 
-    comparable_types = {
+    direct_competitor_types = {
         "toys",
         "variety_store",
         "department_store",
+    }
+    related_retail_types = {
         "furniture",
         "houseware",
         "gift",
@@ -164,20 +178,33 @@ if analysis:
             geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
         )
 
-    comparable = [r for r in retail if r.get("shop") in comparable_types]
-    anchors = [r for r in retail if r.get("shop") in anchor_types]
+    direct_competitors = [
+        r for r in retail
+        if r.get("shop") in direct_competitor_types
+        and (r.get("name") or "").strip().lower() != "unnamed"
+    ]
+    related_retail = [
+        r for r in retail
+        if r.get("shop") in related_retail_types
+        and (r.get("name") or "").strip().lower() != "unnamed"
+    ]
+    anchors = [
+        r for r in retail
+        if r.get("shop") in anchor_types
+        and (r.get("name") or "").strip().lower() != "unnamed"
+    ]
     parking = [r for r in retail if r.get("amenity") == "parking"]
 
-    comp_1km = [r for r in comparable if r.get("distance_km") is not None and r["distance_km"] <= 1]
-    comp_3km = [r for r in comparable if r.get("distance_km") is not None and r["distance_km"] <= 3]
+    comp_1km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 1]
+    comp_3km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 3]
     anchor_1km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 1]
     anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
     parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Live data coverage", "2 / 5 modules")
-    c2.metric("Comparable retail / 1 km", len(comp_1km))
-    c3.metric("Comparable retail / 3 km", len(comp_3km))
+    c2.metric("Direct competitors / 1 km", len(comp_1km))
+    c3.metric("Direct competitors / 3 km", len(comp_3km))
     c4.metric("Retail anchors / 3 km", len(anchor_3km))
     c5.metric("Parking POIs / 1 km", len(parking_1km))
 
@@ -204,11 +231,11 @@ if analysis:
         )
 
         if len(comp_1km) == 0:
-            st.success("Competition signal: no comparable retail POIs detected within 1 km in the public OSM layer.")
+            st.success("Competition signal: no named direct competitor POIs detected within 1 km in the public OSM layer.")
         elif len(comp_1km) <= 3:
-            st.warning(f"Competition signal: {len(comp_1km)} comparable retail POI(s) detected within 1 km.")
+            st.warning(f"Competition signal: {len(comp_1km)} named direct competitor(s) detected within 1 km.")
         else:
-            st.warning(f"Competition signal: {len(comp_1km)} comparable retail POIs detected within 1 km — review density carefully.")
+            st.warning(f"Competition signal: {len(comp_1km)} named direct competitors detected within 1 km — review density carefully.")
 
         if len(anchor_1km) > 0:
             st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
@@ -253,9 +280,13 @@ if analysis:
 
     with tab4:
         st.markdown("### Competition & retail fabric")
-        if comparable:
+        st.caption(
+            "Direct competitors = named toy, variety and department-store POIs. "
+            "Related home/gift/stationery retail is tracked separately."
+        )
+        if direct_competitors:
             comp_rows = []
-            for item in comparable:
+            for item in direct_competitors:
                 dist = item.get("distance_km")
                 comp_rows.append(
                     {
@@ -269,9 +300,10 @@ if analysis:
             )
             st.dataframe(comp_df, use_container_width=True, hide_index=True)
         else:
-            st.write("No comparable retail POIs were found in the public OSM layer within 3 km.")
+            st.write("No named direct competitor POIs were found in the public OSM layer within 3 km.")
         st.caption(
-            "This is an initial public-data scan, not yet the final competitor/cannibalization model."
+            f"Related retail POIs in the scan: {len(related_retail)}. "
+            "This remains an initial public-data scan, not yet the final competitor/cannibalization model."
         )
 
     with tab5:
