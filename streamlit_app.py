@@ -13,7 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v8"
+BUILD_VERSION = "2026-10-03-v9"
 
 
 @st.cache_data(ttl=3600)
@@ -680,6 +680,30 @@ if analysis:
             "This module uses commercial assumptions entered by the user. "
             "It does not invent rent, CAPEX, sales or margin from public map data."
         )
+
+        st.success("Base scenario loader is active in v9.")
+        if st.button(
+            "LOAD BASE SCENARIO NOW",
+            type="primary",
+            use_container_width=True,
+            key="econ_load_base_v9",
+        ):
+            base = {
+                "econ_currency": "EUR",
+                "econ_area": 4500.0,
+                "econ_rent": 5.0,
+                "econ_capex": 2500000.0,
+                "econ_sales": 5000000.0,
+                "econ_margin": 50.0,
+                "econ_payroll": 250000.0,
+                "econ_utilities": 12000.0,
+                "econ_logistics": 20000.0,
+                "econ_other_opex": 100000.0,
+                "econ_scenario_name": "Karavan Mall, Kyiv - Base",
+            }
+            for state_key, state_value in base.items():
+                st.session_state[state_key] = state_value
+            st.rerun()
 
         if st.button(
             "Load Base Scenario",
