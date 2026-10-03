@@ -13,7 +13,7 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v5"
+BUILD_VERSION = "2026-10-03-v6"
 
 
 @st.cache_data(ttl=3600)
@@ -343,6 +343,36 @@ if analysis:
     anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
     parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
 
+    nearest_competitor_km = min(
+        [r["distance_km"] for r in direct_competitors if r.get("distance_km") is not None],
+        default=None,
+    )
+    nearest_competitor_name = None
+    if nearest_competitor_km is not None:
+        nearest_match = min(
+            [r for r in direct_competitors if r.get("distance_km") is not None],
+            key=lambda r: r["distance_km"],
+        )
+        nearest_competitor_name = nearest_match.get("name")
+
+    competition_proximity_points = 0
+    if nearest_competitor_km is not None:
+        if nearest_competitor_km <= 0.5:
+            competition_proximity_points = 40
+        elif nearest_competitor_km <= 1.0:
+            competition_proximity_points = 32
+        elif nearest_competitor_km <= 2.0:
+            competition_proximity_points = 20
+        elif nearest_competitor_km <= 3.0:
+            competition_proximity_points = 10
+
+    competition_1km_points = min(30, len(comp_1km) * 10)
+    competition_outer_points = min(30, max(0, len(comp_3km) - len(comp_1km)) * 3)
+    competition_pressure = min(
+        100,
+        competition_proximity_points + competition_1km_points + competition_outer_points,
+    )
+
     population_complete = all(
         population.get(label, {}).get("total_population") is not None
         for label in ["5 min", "10 min", "15 min"]
@@ -419,12 +449,10 @@ if analysis:
             "Next: drive-time catchment, demographic demand, traffic and a calibrated Jumbo sales model."
         )
 
-        if len(comp_1km) == 0:
-            st.success("Competition signal: no named direct competitor POIs detected within 1 km in the public OSM layer.")
-        elif len(comp_1km) <= 3:
-            st.warning(f"Competition signal: {len(comp_1km)} named direct competitor(s) detected within 1 km.")
-        else:
-            st.warning(f"Competition signal: {len(comp_1km)} named direct competitors detected within 1 km — review density carefully.")
+        st.write(
+            f"Competition pressure proxy: **{competition_pressure}/100** · "
+            f"Direct competitors: **{len(comp_1km)} within 1 km**, **{len(comp_3km)} within 3 km**."
+        )
 
         if len(anchor_1km) > 0:
             st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
@@ -553,10 +581,39 @@ if analysis:
 
     with tab4:
         st.markdown("### Competition & retail fabric")
+        st.caption(f"Build: {BUILD_VERSION}")
         st.caption(
             "Direct competitors = named toy, variety and department-store POIs. "
             "Related home/gift/stationery retail is tracked separately."
         )
+
+        q1, q2, q3, q4, q5 = st.columns(5)
+        q1.metric("Competition pressure proxy", f"{competition_pressure}/100")
+        q2.metric(
+            "Nearest direct competitor",
+            f"{nearest_competitor_km:.2f} km" if nearest_competitor_km is not None else "None in 3 km",
+        )
+        q3.metric("Direct competitors / 1 km", len(comp_1km))
+        q4.metric("Direct competitors / 3 km", len(comp_3km))
+        q5.metric("Retail anchors / 3 km", len(anchor_3km))
+
+        if nearest_competitor_name:
+            st.write(f"Nearest named direct competitor: **{nearest_competitor_name}**")
+
+        pressure_table = pd.DataFrame(
+            [
+                ["Nearest-competitor proximity", competition_proximity_points, 40],
+                ["Direct competitors within 1 km", competition_1km_points, 30],
+                ["Additional direct competitors from 1–3 km", competition_outer_points, 30],
+            ],
+            columns=["Competition component", "Current points", "Maximum weight"],
+        )
+        st.dataframe(pressure_table, use_container_width=True, hide_index=True)
+        st.info(
+            "Higher competition pressure means denser/closer named competitors in the public OSM layer. "
+            "It is a screening proxy, not a market-share forecast."
+        )
+
         if direct_competitors:
             comp_rows = []
             for item in direct_competitors:
@@ -576,6 +633,7 @@ if analysis:
             st.write("No named direct competitor POIs were found in the public OSM layer within 3 km.")
         st.caption(
             f"Related retail POIs in the scan: {len(related_retail)}. "
+            f"Retail anchors in 1 km: {len(anchor_1km)}. "
             "This remains an initial public-data scan, not yet the final competitor/cannibalization model."
         )
 
