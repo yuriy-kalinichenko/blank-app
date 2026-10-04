@@ -33,9 +33,11 @@ def test_app_starts_and_project_workspace_is_present():
     assert "project_import_library_file" in uploader_keys
 
 
-def test_commercial_upload_controls_are_defined_in_app_source():
+def test_commercial_workflow_is_simple_and_upload_is_advanced():
     source = APP_PATH.read_text(encoding="utf-8")
-    assert 'with st.expander("Upload commercial data"' in source
+    assert '"Save to project"' in source
+    assert 'key="commercial_save_to_project"' in source
+    assert 'with st.expander("Advanced · upload commercial file"' in source
     assert 'key="commercial_data_upload"' in source
     assert '"Apply commercial data"' in source
     assert 'key="commercial_data_apply"' in source
