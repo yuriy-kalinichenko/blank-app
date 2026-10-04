@@ -9,7 +9,13 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
-st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
+from project_library import (
+    default_project_library,
+    export_project_library as serialize_project_library,
+    validate_project_library,
+)
+
+st.set_page_config(page_title="Jumbo Location Analyzer", page_icon="📍", layout="wide")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URLS = [
@@ -20,12 +26,12 @@ OVERPASS_URLS = [
     "https://z.overpass-api.de/api/interpreter",
     "https://overpass.osm.ch/api/interpreter",
 ]
-USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
+USER_AGENT = "JumboLocationAnalyzer/1.0 (site-selection decision support)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v11.2"
+BUILD_VERSION = "2026-10-04-v1.0-rc1"
 
 
 BASE_ECON_STATE = {
@@ -862,30 +868,18 @@ SCENARIO_FILE = "saved_scenarios.json"
 
 
 def load_saved_scenarios():
-    default_scenarios = {
-        "Karavan Mall, Kyiv - Base": {
-            "location": "Karavan Mall, Kyiv",
-            "currency": "EUR",
-            "area": 4500.0,
-            "rent": 5.0,
-            "capex": 2500000.0,
-            "annual_sales": 5000000.0,
-            "gross_margin": 50.0,
-            "payroll": 250000.0,
-            "utilities": 12000.0,
-            "logistics": 20000.0,
-            "other_opex": 100000.0,
-            "stage": "Screening",
-            "schema_version": 2,
-        }
-    }
+    default_scenarios = default_project_library()
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         merged = {}
         if isinstance(data, dict):
-            merged.update(data)
-        merged.update(default_scenarios)
+            try:
+                merged.update(validate_project_library(data))
+            except ValueError:
+                pass
+        for name, project in default_scenarios.items():
+            merged.setdefault(name, project)
         return merged
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return default_scenarios
@@ -1018,16 +1012,17 @@ if "active_project_name" not in st.session_state:
     st.session_state["active_project_name"] = None
 if "project_stage" not in st.session_state:
     st.session_state["project_stage"] = "Screening"
+if "project_library" not in st.session_state:
+    st.session_state["project_library"] = load_saved_scenarios()
 
 
 st.title("Jumbo Location Analyzer")
 st.caption(f"Build: {BUILD_VERSION}")
 st.caption(
-    "Retail site-selection prototype inspired by leading location-intelligence workflows: "
-    "trade area, demand, traffic, competition, economics and scoring."
+    "Site selection & investment screening · catchment, demand, access, competition and economics."
 )
 
-saved_projects = load_saved_scenarios()
+saved_projects = st.session_state["project_library"]
 
 pending_load = st.session_state.pop("_pending_project_load", None)
 if pending_load and pending_load in saved_projects:
@@ -1104,15 +1099,101 @@ with st.container(border=True):
             st.warning("Enter a location before saving the project.")
         else:
             saved_projects[clean_name] = capture_project_from_state(clean_name)
+            st.session_state["project_library"] = saved_projects
+            persist_warning = None
             try:
                 persist_saved_scenarios(saved_projects)
-                st.session_state["active_project_name"] = clean_name
-                st.session_state["econ_scenario_name"] = clean_name
-                st.session_state["_pending_project_select"] = clean_name
-                st.success(f"Project saved: {clean_name}")
-                st.rerun()
             except OSError as exc:
-                st.error(f"Could not save project on this app instance: {exc}")
+                persist_warning = str(exc)
+
+            st.session_state["active_project_name"] = clean_name
+            st.session_state["econ_scenario_name"] = clean_name
+            st.session_state["_pending_project_select"] = clean_name
+            if persist_warning:
+                st.warning(
+                    "Project is saved for this session, but local server storage is unavailable. "
+                    "Use Export library below for a durable backup."
+                )
+            else:
+                st.success(f"Project saved: {clean_name}")
+            st.rerun()
+
+    with st.expander("Project library · backup & transfer", expanded=False):
+        st.caption(
+            "Export keeps a durable copy of all projects. Import merges a saved library "
+            "into the current workspace and replaces projects with the same name."
+        )
+
+        backup_col, import_col = st.columns(2)
+        backup_col.download_button(
+            "Export library",
+            data=serialize_project_library(saved_projects, BUILD_VERSION),
+            file_name="jumbo_location_projects.json",
+            mime="application/json",
+            use_container_width=True,
+            key="project_export_library",
+        )
+
+        uploaded_library = import_col.file_uploader(
+            "Import library",
+            type=["json"],
+            accept_multiple_files=False,
+            key="project_import_library_file",
+            label_visibility="collapsed",
+        )
+
+        manage_left, manage_right = st.columns(2)
+        import_clicked = manage_left.button(
+            "Import selected file",
+            use_container_width=True,
+            key="project_import_library_button",
+            disabled=uploaded_library is None,
+        )
+        delete_clicked = manage_right.button(
+            "Delete selected project",
+            use_container_width=True,
+            key="project_delete_selected",
+            disabled=selected_project == "— Select project —",
+        )
+
+        if import_clicked and uploaded_library is not None:
+            try:
+                imported_payload = json.loads(
+                    uploaded_library.getvalue().decode("utf-8")
+                )
+                imported_projects = validate_project_library(imported_payload)
+                saved_projects.update(imported_projects)
+                st.session_state["project_library"] = saved_projects
+                try:
+                    persist_saved_scenarios(saved_projects)
+                except OSError:
+                    pass
+                st.success(
+                    f"Imported {len(imported_projects)} project(s). "
+                    "Existing projects with the same name were updated."
+                )
+                st.rerun()
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                st.error(f"Could not import project library: {exc}")
+
+        if delete_clicked and selected_project != "— Select project —":
+            deleted_name = selected_project
+            saved_projects.pop(deleted_name, None)
+            st.session_state["project_library"] = saved_projects
+            try:
+                persist_saved_scenarios(saved_projects)
+            except OSError:
+                pass
+            if st.session_state.get("active_project_name") == deleted_name:
+                st.session_state["active_project_name"] = None
+            st.session_state["_pending_project_select"] = "— Select project —"
+            st.success(f"Deleted project: {deleted_name}")
+            st.rerun()
+
+        st.caption(
+            f"Projects in library: {len(saved_projects)} · "
+            "For cloud use, keep an exported JSON backup as the portable source of truth."
+        )
 
     location_ready = bool((st.session_state.get("location_query") or "").strip())
     current_analysis = st.session_state.get("analysis")
@@ -1456,8 +1537,9 @@ if analysis:
     with tab1:
         st.markdown("### Decision dashboard")
         st.info(
-            "Live now: exact site geocoding, mapped nearby retail fabric and commercial economics. "
-            "Next: drive-time catchment, demographic demand, traffic and a calibrated Jumbo sales model."
+            "Decision view combines site geocoding, 15/30/40-minute drive-time catchments, "
+            "population and children demand, retail/competition context, access and commercial economics. "
+            "Measured footfall and a calibrated Jumbo sales forecast remain separate future data/model layers."
         )
 
         if retail_data_ok:
@@ -2036,14 +2118,16 @@ if analysis:
             "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
         )
         st.write(
-            "**Catchment:** current 5/10/15-minute values use WorldPop population over provisional ~2/4/6 km circular proxies. "
-            "They are not yet true road-network drive-time isochrones."
+            "**Catchment:** the app requests 15/30/40-minute car isochrones from Valhalla using the OpenStreetMap road network. "
+            "WorldPop population and children 0-18 are calculated inside the same displayed polygons. "
+            "If routing is unavailable, the app switches to explicitly labelled 6/12/16 km proxy zones rather than presenting them as true drive-time."
         )
 
         provider_rows = [
             ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
             ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
-            ["WorldPop", "Population", "Active when service responds", "No key in current implementation"],
+            ["Valhalla / OpenStreetMap", "15/30/40-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
+            ["WorldPop", "Population + age 0-18 inside catchments", "Active when service responds", "No key in current implementation"],
             ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
             ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
             ["Measured mobility / traffic provider", "Car counts / footfall", "Not connected", "Future provider"],
@@ -2060,6 +2144,6 @@ if analysis:
 
 st.divider()
 st.caption(
-    "Prototype. Public map/POI data can be incomplete; investment decisions should use verified commercial, "
-    "traffic and demographic sources."
+    "Decision-support release candidate. Public routing, map/POI and demographic sources can be incomplete or temporarily unavailable; "
+    "final investment decisions should use verified commercial and measured traffic data."
 )

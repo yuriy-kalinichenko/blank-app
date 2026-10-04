@@ -28,4 +28,4 @@ jobs:
         run: python -m py_compile streamlit_app.py
 
       - name: Run smoke test
-        run: pytest -q tests/test_app_smoke.py
+        run: pytest -q tests
