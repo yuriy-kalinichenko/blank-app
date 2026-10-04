@@ -10,10 +10,46 @@ import streamlit as st
 st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-03-v9"
+BUILD_VERSION = "2026-10-04-v9.1"
+
+
+BASE_ECON_STATE = {
+    "econ_currency": "EUR",
+    "econ_area": 4500.0,
+    "econ_rent": 5.0,
+    "econ_capex": 2500000.0,
+    "econ_sales": 5000000.0,
+    "econ_margin": 50.0,
+    "econ_payroll": 250000.0,
+    "econ_utilities": 12000.0,
+    "econ_logistics": 20000.0,
+    "econ_other_opex": 100000.0,
+    "econ_scenario_name": "Karavan Mall, Kyiv - Base",
+}
+
+
+def run_overpass_query(query):
+    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    errors = []
+    for endpoint in OVERPASS_URLS:
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=data,
+                headers={"User-Agent": USER_AGENT},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=35) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as exc:
+            errors.append(f"{endpoint}: {exc}")
+    raise RuntimeError("All Overpass endpoints failed. " + " | ".join(errors))
 
 
 @st.cache_data(ttl=3600)
@@ -47,15 +83,7 @@ def fetch_nearby_retail(lat, lon, radius=3000):
     );
     out center tags;
     """
-    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
-    req = urllib.request.Request(
-        OVERPASS_URL,
-        data=data,
-        headers={"User-Agent": USER_AGENT},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=35) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = run_overpass_query(query)
 
     rows = []
     for element in payload.get("elements", []):
@@ -98,15 +126,7 @@ def fetch_access_context(lat, lon, radius=1500):
     );
     out center tags;
     """
-    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
-    req = urllib.request.Request(
-        OVERPASS_URL,
-        data=data,
-        headers={"User-Agent": USER_AGENT},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=35) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    payload = run_overpass_query(query)
 
     rows = []
     for element in payload.get("elements", []):
@@ -244,6 +264,11 @@ def distance_km(lat1, lon1, lat2, lon2):
         + math.cos(p1) * math.cos(p2) * math.sin(d_lon / 2) ** 2
     )
     return 2 * radius * math.asin(math.sqrt(a))
+
+
+for state_key, state_value in BASE_ECON_STATE.items():
+    if state_key not in st.session_state:
+        st.session_state[state_key] = state_value
 
 
 st.title("Jumbo Location Analyzer")
@@ -688,20 +713,7 @@ if analysis:
             use_container_width=True,
             key="econ_load_base_v9",
         ):
-            base = {
-                "econ_currency": "EUR",
-                "econ_area": 4500.0,
-                "econ_rent": 5.0,
-                "econ_capex": 2500000.0,
-                "econ_sales": 5000000.0,
-                "econ_margin": 50.0,
-                "econ_payroll": 250000.0,
-                "econ_utilities": 12000.0,
-                "econ_logistics": 20000.0,
-                "econ_other_opex": 100000.0,
-                "econ_scenario_name": "Karavan Mall, Kyiv - Base",
-            }
-            for state_key, state_value in base.items():
+            for state_key, state_value in BASE_ECON_STATE.items():
                 st.session_state[state_key] = state_value
             st.rerun()
 
@@ -710,20 +722,7 @@ if analysis:
             use_container_width=True,
             key="econ_load_base_direct",
         ):
-            base = {
-                "econ_currency": "EUR",
-                "econ_area": 4500.0,
-                "econ_rent": 5.0,
-                "econ_capex": 2500000.0,
-                "econ_sales": 5000000.0,
-                "econ_margin": 50.0,
-                "econ_payroll": 250000.0,
-                "econ_utilities": 12000.0,
-                "econ_logistics": 20000.0,
-                "econ_other_opex": 100000.0,
-                "econ_scenario_name": "Karavan Mall, Kyiv - Base",
-            }
-            for state_key, state_value in base.items():
+            for state_key, state_value in BASE_ECON_STATE.items():
                 st.session_state[state_key] = state_value
             st.rerun()
 
