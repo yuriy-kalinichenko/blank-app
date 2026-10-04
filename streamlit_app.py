@@ -11,14 +11,16 @@ st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URLS = [
+    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
     "https://lz4.overpass-api.de/api/interpreter",
     "https://z.overpass-api.de/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.5"
+BUILD_VERSION = "2026-10-04-v9.6"
 
 
 BASE_ECON_STATE = {
@@ -70,7 +72,7 @@ def run_overpass_query(query):
                         method="GET",
                     )
 
-                with urllib.request.urlopen(req, timeout=25) as response:
+                with urllib.request.urlopen(req, timeout=10) as response:
                     payload = json.loads(response.read().decode("utf-8"))
 
                 if isinstance(payload, dict) and "elements" in payload:
@@ -232,7 +234,7 @@ def fetch_google_retail(lat, lon, radius=3000, api_key=None):
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as response:
+    with urllib.request.urlopen(req, timeout=10) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     type_map = {
@@ -330,19 +332,27 @@ def fetch_here_retail(lat, lon, radius=3000, api_key=None):
 def fetch_retail_with_fallback(lat, lon, radius=3000):
     """Try independent providers in order; return real data only, never fabricated values."""
     diagnostics = []
-    providers = [
-        ("OpenStreetMap / Overpass", lambda: fetch_nearby_retail(lat, lon, radius)),
-        (
-            "Google Places",
-            lambda: fetch_google_retail(
-                lat, lon, radius, api_key=get_secret("GOOGLE_MAPS_API_KEY")
-            ),
-        ),
-        (
-            "HERE Discover",
-            lambda: fetch_here_retail(lat, lon, radius, api_key=get_secret("HERE_API_KEY")),
-        ),
-    ]
+    providers = [("OpenStreetMap / Overpass", lambda: fetch_nearby_retail(lat, lon, radius))]
+    google_key = get_secret("GOOGLE_MAPS_API_KEY")
+    here_key = get_secret("HERE_API_KEY")
+    if google_key:
+        providers.append(
+            (
+                "Google Places",
+                lambda: fetch_google_retail(lat, lon, radius, api_key=google_key),
+            )
+        )
+    else:
+        diagnostics.append("Google Places: not configured (missing GOOGLE_MAPS_API_KEY)")
+    if here_key:
+        providers.append(
+            (
+                "HERE Discover",
+                lambda: fetch_here_retail(lat, lon, radius, api_key=here_key),
+            )
+        )
+    else:
+        diagnostics.append("HERE Discover: not configured (missing HERE_API_KEY)")
     for provider_name, loader in providers:
         try:
             rows = loader()
@@ -702,8 +712,10 @@ if analysis:
 
     if analysis.get("retail_error"):
         st.warning(
-            "The map loaded, but the public OpenStreetMap retail layer is temporarily unavailable."
+            "Retail providers did not return live data in this run. The app shows 'No data' instead of inventing values."
         )
+        for diagnostic in analysis.get("retail_diagnostics", []):
+            st.code(diagnostic)
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         [
@@ -1241,7 +1253,7 @@ if analysis:
         )
 
         provider_rows = [
-            ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active", "No API key"],
+            ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
             ["WorldPop", "Population", "Active when service responds", "No key in current implementation"],
             ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
             ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
