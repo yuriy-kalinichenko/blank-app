@@ -20,7 +20,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.7"
+BUILD_VERSION = "2026-10-04-v9.8"
 
 
 BASE_ECON_STATE = {
@@ -109,9 +109,10 @@ def fetch_nearby_retail(lat, lon, radius=3000):
     query = f"""
     [out:json][timeout:25];
     (
-      nwr(around:{radius},{lat},{lon})["shop"~"toys|variety_store|department_store|supermarket|furniture|houseware|gift|stationery"];
-      nwr(around:{radius},{lat},{lon})["shop"="mall"];
+      nwr(around:{radius},{lat},{lon})["shop"];
       nwr(around:{radius},{lat},{lon})["amenity"="parking"];
+      nwr(around:{radius},{lat},{lon})["landuse"="retail"];
+      nwr(around:{radius},{lat},{lon})["building"="retail"];
     );
     out center tags;
     """
@@ -127,6 +128,8 @@ def fetch_nearby_retail(lat, lon, radius=3000):
                 "name": tags.get("name") or tags.get("brand") or "Unnamed",
                 "shop": tags.get("shop"),
                 "amenity": tags.get("amenity"),
+                "landuse": tags.get("landuse"),
+                "building": tags.get("building"),
                 "lat": point_lat,
                 "lon": point_lon,
             }
@@ -135,7 +138,7 @@ def fetch_nearby_retail(lat, lon, radius=3000):
     unique = {}
     for row in rows:
         name = (row.get("name") or "").strip().lower()
-        category = row.get("shop") or row.get("amenity") or ""
+        category = row.get("shop") or row.get("amenity") or row.get("landuse") or row.get("building") or ""
         lat_key = round(row.get("lat"), 4) if row.get("lat") is not None else None
         lon_key = round(row.get("lon"), 4) if row.get("lon") is not None else None
         if name and name != "unnamed":
@@ -244,23 +247,14 @@ def fetch_osm_map_retail(lat, lon, radius=3000):
         for e in elements
         if e.get("type") == "node" and e.get("lat") is not None and e.get("lon") is not None
     }
-    allowed_shops = {
-        "toys",
-        "variety_store",
-        "department_store",
-        "supermarket",
-        "furniture",
-        "houseware",
-        "gift",
-        "stationery",
-        "mall",
-    }
     rows = []
     for element in elements:
         tags = element.get("tags") or {}
         shop = tags.get("shop")
         amenity = tags.get("amenity")
-        if shop not in allowed_shops and amenity != "parking":
+        landuse = tags.get("landuse")
+        building = tags.get("building")
+        if not shop and amenity != "parking" and landuse != "retail" and building != "retail":
             continue
         point_lat, point_lon = osm_element_point(element, node_lookup)
         if point_lat is None or point_lon is None:
@@ -270,6 +264,8 @@ def fetch_osm_map_retail(lat, lon, radius=3000):
                 "name": tags.get("name") or tags.get("brand") or "Unnamed",
                 "shop": shop,
                 "amenity": amenity,
+                "landuse": landuse,
+                "building": building,
                 "lat": point_lat,
                 "lon": point_lon,
             }
@@ -278,7 +274,7 @@ def fetch_osm_map_retail(lat, lon, radius=3000):
     unique = {}
     for row in rows:
         name = (row.get("name") or "").strip().lower()
-        category = row.get("shop") or row.get("amenity") or ""
+        category = row.get("shop") or row.get("amenity") or row.get("landuse") or row.get("building") or ""
         lat_key = round(row["lat"], 4)
         lon_key = round(row["lon"], 4)
         key = (name, category) if name and name != "unnamed" else (category, lat_key, lon_key)
@@ -342,9 +338,7 @@ def fetch_access_with_fallback(lat, lon, radius=1500):
     for provider_name, loader in providers:
         try:
             rows = loader()
-            if rows:
-                return rows, provider_name, diagnostics
-            diagnostics.append(f"{provider_name}: returned no matching access features")
+            return rows, provider_name, diagnostics
         except Exception as exc:
             diagnostics.append(f"{provider_name}: {exc}")
     raise RuntimeError("All access providers failed. " + " | ".join(diagnostics))
@@ -523,9 +517,7 @@ def fetch_retail_with_fallback(lat, lon, radius=3000):
     for provider_name, loader in providers:
         try:
             rows = loader()
-            if rows:
-                return rows, provider_name, diagnostics
-            diagnostics.append(f"{provider_name}: returned no matching POIs")
+            return rows, provider_name, diagnostics
         except Exception as exc:
             diagnostics.append(f"{provider_name}: {exc}")
     raise RuntimeError("All retail providers failed. " + " | ".join(diagnostics))
@@ -879,8 +871,8 @@ if analysis:
     access_score = min(100, road_score + network_score + transit_score + parking_score)
 
     retail_data_ok = not analysis.get("retail_error")
-    access_data_ok = not analysis.get("access_error") and bool(access)
-    access_complete = access_data_ok and nearest_major_road_km is not None
+    access_data_ok = not analysis.get("access_error")
+    access_complete = access_data_ok
     live_modules = 2 + (1 if retail_data_ok else 0) + (1 if population_complete else 0) + (1 if access_complete else 0)
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -1009,7 +1001,11 @@ if analysis:
         a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "No data")
         a2.metric(
             "Nearest major road",
-            f"{nearest_major_road_km:.2f} km" if access_complete else "No data",
+            (
+                f"{nearest_major_road_km:.2f} km"
+                if nearest_major_road_km is not None
+                else ("None in 1.5 km" if access_data_ok else "No data")
+            ),
         )
         a3.metric("Named major roads / 1.5 km", len(named_major_roads) if access_data_ok else "No data")
         a4.metric("Transit stops / 1.5 km", len(transit_stops) if access_data_ok else "No data")
@@ -1017,7 +1013,7 @@ if analysis:
 
         if access_complete:
             st.success(
-                "Access layer is live from OpenStreetMap. The score is an infrastructure proxy, "
+                f"Access layer is live from {access_source}. The score is an infrastructure proxy, "
                 "not a measured traffic-volume score."
             )
         else:
@@ -1102,7 +1098,7 @@ if analysis:
             )
             st.dataframe(comp_df, use_container_width=True, hide_index=True)
         elif retail_data_ok:
-            st.write("No named direct competitor POIs were found in the public OSM layer within 3 km.")
+            st.write(f"No named direct competitor POIs were found within 3 km in the {retail_source} retail scan.")
         else:
             st.warning("Competition data is unavailable in this run; the app will retry the backup source on the next analysis.")
         st.caption(
@@ -1423,7 +1419,7 @@ if analysis:
 
         st.markdown("#### Location-data logic")
         st.write(
-            "**Competition:** the app first requests OpenStreetMap/Overpass. If that provider is unavailable, it can automatically "
+            "**Competition:** the app first requests a broad local retail scan and then classifies toy, variety and department stores as direct competitors. If OpenStreetMap/Overpass is unavailable, it can automatically "
             "fall back to Google Places and then HERE Discover when their API keys are configured. No synthetic competitor counts are inserted."
         )
         st.write(
