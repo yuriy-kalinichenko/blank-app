@@ -20,7 +20,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.6"
+BUILD_VERSION = "2026-10-04-v9.7"
 
 
 BASE_ECON_STATE = {
@@ -187,6 +187,170 @@ def fetch_access_context(lat, lon, radius=1500):
     return list(unique.values())
 
 
+def bbox_from_radius(lat, lon, radius_m):
+    """Approximate a bounding box for a local OSM Map API fallback."""
+    lat_delta = (radius_m / 1000.0) / 110.574
+    lon_scale = max(0.01, 111.320 * math.cos(math.radians(lat)))
+    lon_delta = (radius_m / 1000.0) / lon_scale
+    return (
+        lon - lon_delta,
+        lat - lat_delta,
+        lon + lon_delta,
+        lat + lat_delta,
+    )
+
+
+@st.cache_data(ttl=3600)
+def fetch_osm_map_elements(lat, lon, radius_m):
+    """Fetch raw OSM elements from the standard Map API for a small local bbox."""
+    west, south, east, north = bbox_from_radius(lat, lon, radius_m)
+    bbox = f"{west:.6f},{south:.6f},{east:.6f},{north:.6f}"
+    url = "https://api.openstreetmap.org/api/0.6/map.json?" + urllib.parse.urlencode({"bbox": bbox})
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    elements = payload.get("elements")
+    if not isinstance(elements, list):
+        raise RuntimeError("OSM Map API returned no elements list")
+    return elements
+
+
+def osm_element_point(element, node_lookup):
+    """Return a representative point for a node/way/relation from raw Map API data."""
+    if element.get("type") == "node":
+        if element.get("lat") is not None and element.get("lon") is not None:
+            return float(element["lat"]), float(element["lon"])
+        return None, None
+
+    node_ids = element.get("nodes") or []
+    coords = [node_lookup.get(node_id) for node_id in node_ids if node_lookup.get(node_id)]
+    if coords:
+        lat = sum(p[0] for p in coords) / len(coords)
+        lon = sum(p[1] for p in coords) / len(coords)
+        return lat, lon
+
+    return None, None
+
+
+@st.cache_data(ttl=3600)
+def fetch_osm_map_retail(lat, lon, radius=3000):
+    """Keyless retail fallback using the standard OSM Map API."""
+    elements = fetch_osm_map_elements(lat, lon, min(radius, 1800))
+    node_lookup = {
+        e["id"]: (float(e["lat"]), float(e["lon"]))
+        for e in elements
+        if e.get("type") == "node" and e.get("lat") is not None and e.get("lon") is not None
+    }
+    allowed_shops = {
+        "toys",
+        "variety_store",
+        "department_store",
+        "supermarket",
+        "furniture",
+        "houseware",
+        "gift",
+        "stationery",
+        "mall",
+    }
+    rows = []
+    for element in elements:
+        tags = element.get("tags") or {}
+        shop = tags.get("shop")
+        amenity = tags.get("amenity")
+        if shop not in allowed_shops and amenity != "parking":
+            continue
+        point_lat, point_lon = osm_element_point(element, node_lookup)
+        if point_lat is None or point_lon is None:
+            continue
+        rows.append(
+            {
+                "name": tags.get("name") or tags.get("brand") or "Unnamed",
+                "shop": shop,
+                "amenity": amenity,
+                "lat": point_lat,
+                "lon": point_lon,
+            }
+        )
+
+    unique = {}
+    for row in rows:
+        name = (row.get("name") or "").strip().lower()
+        category = row.get("shop") or row.get("amenity") or ""
+        lat_key = round(row["lat"], 4)
+        lon_key = round(row["lon"], 4)
+        key = (name, category) if name and name != "unnamed" else (category, lat_key, lon_key)
+        unique[key] = row
+    return list(unique.values())
+
+
+@st.cache_data(ttl=3600)
+def fetch_osm_map_access(lat, lon, radius=1500):
+    """Keyless access fallback using the standard OSM Map API."""
+    elements = fetch_osm_map_elements(lat, lon, min(radius, 1800))
+    node_lookup = {
+        e["id"]: (float(e["lat"]), float(e["lon"]))
+        for e in elements
+        if e.get("type") == "node" and e.get("lat") is not None and e.get("lon") is not None
+    }
+
+    allowed_highways = {"motorway", "trunk", "primary", "secondary", "bus_stop"}
+    allowed_railway = {"tram_stop", "station", "halt", "subway_entrance"}
+    rows = []
+    for element in elements:
+        tags = element.get("tags") or {}
+        highway = tags.get("highway")
+        public_transport = tags.get("public_transport")
+        railway = tags.get("railway")
+        if (
+            highway not in allowed_highways
+            and public_transport != "platform"
+            and railway not in allowed_railway
+        ):
+            continue
+        point_lat, point_lon = osm_element_point(element, node_lookup)
+        if point_lat is None or point_lon is None:
+            continue
+        rows.append(
+            {
+                "name": tags.get("name") or tags.get("ref") or "Unnamed",
+                "highway": highway,
+                "public_transport": public_transport,
+                "railway": railway,
+                "lat": point_lat,
+                "lon": point_lon,
+            }
+        )
+
+    unique = {}
+    for row in rows:
+        category = row.get("highway") or row.get("public_transport") or row.get("railway") or ""
+        name = (row.get("name") or "").strip().lower()
+        key = (category, name, round(row["lat"], 4), round(row["lon"], 4))
+        unique[key] = row
+    return list(unique.values())
+
+
+def fetch_access_with_fallback(lat, lon, radius=1500):
+    diagnostics = []
+    providers = [
+        ("OpenStreetMap / Overpass", lambda: fetch_access_context(lat, lon, radius)),
+        ("OpenStreetMap Map API", lambda: fetch_osm_map_access(lat, lon, radius)),
+    ]
+    for provider_name, loader in providers:
+        try:
+            rows = loader()
+            if rows:
+                return rows, provider_name, diagnostics
+            diagnostics.append(f"{provider_name}: returned no matching access features")
+        except Exception as exc:
+            diagnostics.append(f"{provider_name}: {exc}")
+    raise RuntimeError("All access providers failed. " + " | ".join(diagnostics))
+
+
+
 def get_secret(name):
     """Return an optional Streamlit secret without failing when secrets are not configured."""
     try:
@@ -332,7 +496,10 @@ def fetch_here_retail(lat, lon, radius=3000, api_key=None):
 def fetch_retail_with_fallback(lat, lon, radius=3000):
     """Try independent providers in order; return real data only, never fabricated values."""
     diagnostics = []
-    providers = [("OpenStreetMap / Overpass", lambda: fetch_nearby_retail(lat, lon, radius))]
+    providers = [
+        ("OpenStreetMap / Overpass", lambda: fetch_nearby_retail(lat, lon, radius)),
+        ("OpenStreetMap Map API", lambda: fetch_osm_map_retail(lat, lon, radius)),
+    ]
     google_key = get_secret("GOOGLE_MAPS_API_KEY")
     here_key = get_secret("HERE_API_KEY")
     if google_key:
@@ -520,11 +687,21 @@ if analyze:
 
                     access = []
                     access_error = None
+                    access_source = None
+                    access_diagnostics = []
                     try:
-                        access = fetch_access_context(geo["lat"], geo["lon"])
+                        access, access_source, access_diagnostics = fetch_access_with_fallback(
+                            geo["lat"], geo["lon"]
+                        )
                         st.session_state["last_good_access"] = access
+                        st.session_state["last_good_access_source"] = access_source
                     except Exception as exc:
                         access = st.session_state.get("last_good_access", [])
+                        access_source = st.session_state.get(
+                            "last_good_access_source",
+                            "Cached previous live result" if access else None,
+                        )
+                        access_diagnostics = [str(exc)]
                         access_error = str(exc) if not access else None
 
                     population = {}
@@ -553,6 +730,8 @@ if analyze:
                         "population": population,
                         "population_errors": population_errors,
                         "access": access,
+                        "access_source": access_source,
+                        "access_diagnostics": access_diagnostics,
                         "access_error": access_error,
                     }
             except Exception as exc:
@@ -566,6 +745,7 @@ if analysis:
     retail_source = analysis.get("retail_source") or "Unknown"
     population = analysis.get("population", {})
     access = analysis.get("access", [])
+    access_source = analysis.get("access_source") or "Unknown"
 
     st.divider()
     st.subheader(analysis["query"])
@@ -823,6 +1003,7 @@ if analysis:
     with tab3:
         st.markdown("### Traffic & access")
         st.caption(f"Build: {BUILD_VERSION}")
+        st.caption(f"Access provider used for this run: {access_source}")
 
         a1, a2, a3, a4, a5 = st.columns(5)
         a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "No data")
@@ -866,6 +1047,8 @@ if analysis:
 
         if analysis.get("access_error"):
             st.code(f"Access diagnostics: {analysis['access_error']}")
+        for diagnostic in analysis.get("access_diagnostics", []):
+            st.code(diagnostic)
 
     with tab4:
         st.markdown("### Competition & retail fabric")
@@ -1254,6 +1437,7 @@ if analysis:
 
         provider_rows = [
             ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
+            ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
             ["WorldPop", "Population", "Active when service responds", "No key in current implementation"],
             ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
             ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
