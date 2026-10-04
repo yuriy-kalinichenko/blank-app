@@ -1,25 +1,39 @@
-# 🎈 Blank app template
+# Jumbo Location Analyzer
 
-A simple Streamlit app template for you to modify!
+Streamlit application for screening and comparing potential Jumbo retail locations.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## What the app does
 
-### How to run it on your own machine
+- geocodes candidate locations;
+- analyzes nearby retail, parking and access context from OpenStreetMap;
+- uses multiple provider fallbacks for better resilience;
+- supports location comparison and economic scenario analysis;
+- exposes methodology and diagnostics inside the app.
 
-Prerequisite: install `uv` if you don't already have it.
+Current app build: **2026-10-04-v9.9**
 
+## Run locally
+
+Prerequisite: install `uv`.
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync
+uv run streamlit run streamlit_app.py
 ```
-$ curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-1. Sync the dependencies
+## Main application file
 
-   ```
-   $ uv sync
-   ```
+`streamlit_app.py`
 
-2. Run the app
+## Deployment checklist
 
-   ```
-   $ uv run streamlit run streamlit_app.py
-   ```
+1. Push the target branch to GitHub.
+2. Create a Streamlit deployment using this repository.
+3. Set the entrypoint to `streamlit_app.py`.
+4. Add any required secrets in the deployment settings rather than committing them to GitHub.
+5. Test geocoding, retail/access lookups, comparison views and economics before sharing the public link.
+
+## Sharing
+
+Once deployed, share the Streamlit app URL rather than the GitHub repository URL with end users.
