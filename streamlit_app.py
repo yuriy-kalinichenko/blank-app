@@ -6,6 +6,7 @@ import urllib.parse
 import urllib.request
 
 import pandas as pd
+import pydeck as pdk
 import streamlit as st
 
 st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
@@ -21,7 +22,10 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v10.2"
+VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
+VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
+DRIVE_TIME_MINUTES = (15, 30, 40)
+BUILD_VERSION = "2026-10-04-v11.0"
 
 
 BASE_ECON_STATE = {
@@ -569,6 +573,147 @@ def circle_polygon(lat, lon, radius_km, points=48):
     return {"type": "Polygon", "coordinates": [coords]}
 
 
+def normalize_isochrone_geojson(payload):
+    """Normalize Valhalla contour metadata so the UI can render it consistently."""
+    normalized = {"type": "FeatureCollection", "features": []}
+    if not isinstance(payload, dict):
+        return normalized
+
+    for feature in payload.get("features", []):
+        if not isinstance(feature, dict) or not feature.get("geometry"):
+            continue
+        properties = dict(feature.get("properties") or {})
+        raw_minutes = properties.get("contour", properties.get("time"))
+        try:
+            minutes = int(round(float(raw_minutes)))
+        except (TypeError, ValueError):
+            minutes = None
+        if minutes is not None:
+            properties["minutes"] = minutes
+        normalized["features"].append(
+            {
+                "type": "Feature",
+                "geometry": feature["geometry"],
+                "properties": properties,
+            }
+        )
+    return normalized
+
+
+@st.cache_data(ttl=3600)
+def fetch_drive_time_isochrones(lat, lon, minutes=DRIVE_TIME_MINUTES):
+    """Fetch real car drive-time polygons from the Valhalla routing demo service."""
+    request_payload = {
+        "locations": [{"lat": lat, "lon": lon}],
+        "costing": "auto",
+        "contours": [{"time": int(value)} for value in minutes],
+        "polygons": True,
+    }
+    params = urllib.parse.urlencode(
+        {"json": json.dumps(request_payload, separators=(",", ":"))}
+    )
+    req = urllib.request.Request(
+        f"{VALHALLA_ISOCHRONE_URL}?{params}",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/geo+json, application/json",
+            "X-Client-Id": VALHALLA_CLIENT_ID,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    geojson = normalize_isochrone_geojson(payload)
+    returned_minutes = {
+        feature.get("properties", {}).get("minutes")
+        for feature in geojson.get("features", [])
+    }
+    missing = [value for value in minutes if value not in returned_minutes]
+    if missing:
+        raise RuntimeError(
+            "Valhalla response is missing requested contours: "
+            + ", ".join(f"{value} min" for value in missing)
+        )
+    return geojson
+
+
+def build_drive_time_proxy_geojson(lat, lon):
+    """Clearly labelled fallback circles; never presented as real road-network isochrones."""
+    proxy_radii_km = {15: 6, 30: 12, 40: 16}
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "minutes": minutes,
+                    "proxy_radius_km": radius_km,
+                    "proxy": True,
+                },
+                "geometry": circle_polygon(lat, lon, radius_km),
+            }
+            for minutes, radius_km in proxy_radii_km.items()
+        ],
+    }
+
+
+def render_drive_time_map(lat, lon, geojson):
+    """Render nested drive-time polygons without crowding the main site map."""
+    palette = {
+        15: ([46, 204, 113, 55], [39, 174, 96, 210]),
+        30: ([52, 152, 219, 42], [41, 128, 185, 210]),
+        40: ([155, 89, 182, 32], [142, 68, 173, 210]),
+    }
+    layers = []
+    features = geojson.get("features", []) if isinstance(geojson, dict) else []
+
+    # Draw larger contours first so the smaller catchments remain legible.
+    for minutes in sorted(DRIVE_TIME_MINUTES, reverse=True):
+        selected = [
+            feature
+            for feature in features
+            if feature.get("properties", {}).get("minutes") == minutes
+        ]
+        if not selected:
+            continue
+        fill_color, line_color = palette[minutes]
+        layers.append(
+            pdk.Layer(
+                "GeoJsonLayer",
+                {"type": "FeatureCollection", "features": selected},
+                filled=True,
+                stroked=True,
+                pickable=True,
+                get_fill_color=fill_color,
+                get_line_color=line_color,
+                line_width_min_pixels=2,
+            )
+        )
+
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            [{"lat": lat, "lon": lon}],
+            get_position="[lon, lat]",
+            get_radius=180,
+            radius_min_pixels=6,
+            pickable=False,
+        )
+    )
+
+    deck = pdk.Deck(
+        layers=layers,
+        initial_view_state=pdk.ViewState(
+            latitude=lat,
+            longitude=lon,
+            zoom=9.2,
+            pitch=0,
+        ),
+        tooltip={"text": "{minutes} min"},
+    )
+    st.pydeck_chart(deck, use_container_width=True)
+
+
 @st.cache_data(ttl=86400)
 def worldpop_population(lat, lon, radius_km, year=2025):
     payload = {
@@ -941,10 +1086,25 @@ if analyze:
                         access_diagnostics = [str(exc)]
                         access_error = str(exc) if not access else None
 
+                    drive_time_error = None
+                    drive_time_mode = "live"
+                    drive_time_source = "Valhalla road-network isochrones"
+                    try:
+                        drive_time_geojson = fetch_drive_time_isochrones(
+                            geo["lat"], geo["lon"]
+                        )
+                    except Exception as exc:
+                        drive_time_error = str(exc)
+                        drive_time_mode = "proxy"
+                        drive_time_source = "Fallback distance proxy (not road-network routing)"
+                        drive_time_geojson = build_drive_time_proxy_geojson(
+                            geo["lat"], geo["lon"]
+                        )
+
                     population = {}
                     population_errors = {}
-                    # Provisional urban-drive proxy at ~24 km/h average effective speed:
-                    # 5 min ≈ 2 km, 10 min ≈ 4 km, 15 min ≈ 6 km.
+                    # The population layer is still a separate provisional radius-based proxy.
+                    # It will be replaced with polygon-based zonal population in a later build.
                     for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
                         try:
                             result = worldpop_population(
@@ -966,6 +1126,10 @@ if analyze:
                         "retail_error": retail_error,
                         "population": population,
                         "population_errors": population_errors,
+                        "drive_time_geojson": drive_time_geojson,
+                        "drive_time_source": drive_time_source,
+                        "drive_time_mode": drive_time_mode,
+                        "drive_time_error": drive_time_error,
                         "access": access,
                         "access_source": access_source,
                         "access_diagnostics": access_diagnostics,
@@ -981,6 +1145,9 @@ if analysis:
     retail = analysis["retail"]
     retail_source = analysis.get("retail_source") or "Unknown"
     population = analysis.get("population", {})
+    drive_time_geojson = analysis.get("drive_time_geojson", {})
+    drive_time_source = analysis.get("drive_time_source") or "Unknown"
+    drive_time_mode = analysis.get("drive_time_mode") or "unavailable"
     access = analysis.get("access", [])
     access_source = analysis.get("access_source") or "Unknown"
 
@@ -1075,6 +1242,10 @@ if analysis:
         population.get(label, {}).get("total_population") is not None
         for label in ["5 min", "10 min", "15 min"]
     )
+    drive_time_live = (
+        drive_time_mode == "live"
+        and len(drive_time_geojson.get("features", [])) >= len(DRIVE_TIME_MINUTES)
+    )
 
     for item in access:
         item["distance_km"] = distance_km(
@@ -1118,10 +1289,16 @@ if analysis:
     retail_data_ok = not analysis.get("retail_error")
     access_data_ok = not analysis.get("access_error")
     access_complete = access_data_ok
-    live_modules = 2 + (1 if retail_data_ok else 0) + (1 if population_complete else 0) + (1 if access_complete else 0)
+    live_modules = (
+        2
+        + (1 if retail_data_ok else 0)
+        + (1 if population_complete else 0)
+        + (1 if access_complete else 0)
+        + (1 if drive_time_live else 0)
+    )
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Live data coverage", f"{live_modules} / 5 modules")
+    c1.metric("Live data coverage", f"{live_modules} / 6 modules")
     c2.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
     c3.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
     c4.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
@@ -1166,7 +1343,8 @@ if analysis:
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
                 ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", retail_source],
-                ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
+                ["Drive-time isochrones", "Live" if drive_time_live else "Fallback proxy", drive_time_source],
+                ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional radius proxy"],
                 ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                 ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
                 ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
@@ -1193,8 +1371,38 @@ if analysis:
         st.markdown("### Catchment & demand")
         st.caption(f"Build: {BUILD_VERSION}")
         st.write(
-            "Target structure: population and households inside 5-, 10- and 15-minute drive-time "
-            "areas, spending power, family/children profile and retail expenditure."
+            "Primary catchment view: 15-, 30- and 40-minute car reach from the candidate site. "
+            "When live routing is available these are road-network isochrones, not simple radii."
+        )
+
+        render_drive_time_map(
+            geo["lat"],
+            geo["lon"],
+            drive_time_geojson,
+        )
+
+        route_cols = st.columns(3)
+        for idx, minutes in enumerate(DRIVE_TIME_MINUTES):
+            route_cols[idx].metric(f"{minutes}-min drive zone", "Road network" if drive_time_live else "Proxy")
+
+        if drive_time_live:
+            st.success(
+                "Drive-time source: Valhalla / OpenStreetMap road network. "
+                "Contours shown are real routing isochrones for 15, 30 and 40 minutes."
+            )
+        else:
+            st.warning(
+                "Live routing was unavailable, so the map uses clearly labelled distance proxies "
+                "(6/12/16 km for 15/30/40 minutes). These are not road-network isochrones."
+            )
+            if analysis.get("drive_time_error"):
+                with st.expander("Drive-time provider diagnostic", expanded=False):
+                    st.code(analysis["drive_time_error"])
+
+        st.markdown("#### Population proxy")
+        st.caption(
+            "WorldPop is still calculated on provisional circular zones in this build. "
+            "The next step is polygon-based population inside the real 15/30/40-minute isochrones."
         )
         pop5 = population.get("5 min", {}).get("total_population")
         pop10 = population.get("10 min", {}).get("total_population")
