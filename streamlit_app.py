@@ -21,7 +21,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v10.1"
+BUILD_VERSION = "2026-10-04-v10.2"
 
 
 BASE_ECON_STATE = {
@@ -634,6 +634,8 @@ def load_saved_scenarios():
             "utilities": 12000.0,
             "logistics": 20000.0,
             "other_opex": 100000.0,
+            "stage": "Screening",
+            "schema_version": 2,
         }
     }
     try:
@@ -676,6 +678,7 @@ def apply_project_to_state(project_name, project):
             st.session_state[state_key] = project[source_key]
 
     st.session_state["project_name_input"] = project_name
+    st.session_state["project_stage"] = project.get("stage", "Screening")
     st.session_state["active_project_name"] = project_name
     st.session_state["econ_scenario_name"] = project_name
 
@@ -693,6 +696,7 @@ def reset_project_state():
         else:
             st.session_state[state_key] = 0.0
     st.session_state["project_name_input"] = "New Jumbo project"
+    st.session_state["project_stage"] = "Screening"
     st.session_state["active_project_name"] = None
     st.session_state["econ_scenario_name"] = "New Jumbo project"
     st.session_state.pop("analysis", None)
@@ -704,10 +708,46 @@ def capture_project_from_state(project_name):
         "schema_version": 2,
         "location": (st.session_state.get("location_query") or "").strip(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
+        "stage": st.session_state.get("project_stage", "Screening"),
     }
     for source_key, state_key in PROJECT_FIELD_MAP.items():
         project[source_key] = st.session_state.get(state_key)
     return project
+
+
+def build_project_comparison(projects):
+    """Create a decision-friendly comparison table from saved project assumptions."""
+    rows = []
+    for name, project in projects.items():
+        area = float(project.get("area") or 0)
+        rent = float(project.get("rent") or 0)
+        sales = float(project.get("annual_sales") or 0)
+        margin = float(project.get("gross_margin") or 0)
+        payroll = float(project.get("payroll") or 0)
+        utilities = float(project.get("utilities") or 0)
+        logistics = float(project.get("logistics") or 0)
+        other_opex = float(project.get("other_opex") or 0)
+        capex = float(project.get("capex") or 0)
+
+        annual_rent = area * rent * 12
+        gross_profit = sales * margin / 100
+        ebitda = gross_profit - annual_rent - payroll - utilities - logistics - other_opex
+        ebitda_margin = ebitda / sales * 100 if sales > 0 else None
+        payback = capex / ebitda if capex > 0 and ebitda > 0 else None
+
+        rows.append(
+            {
+                "Project": name,
+                "Stage": project.get("stage", "Screening"),
+                "Location": project.get("location", ""),
+                "Area, m²": area or None,
+                "Annual sales": sales or None,
+                "EBITDA margin, %": round(ebitda_margin, 1) if ebitda_margin is not None else None,
+                "Payback, years": round(payback, 1) if payback is not None else None,
+                "Currency": project.get("currency", "EUR"),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def distance_km(lat1, lon1, lat2, lon2):
@@ -735,6 +775,8 @@ if "project_name_input" not in st.session_state:
     st.session_state["project_name_input"] = "Karavan Mall, Kyiv - Base"
 if "active_project_name" not in st.session_state:
     st.session_state["active_project_name"] = None
+if "project_stage" not in st.session_state:
+    st.session_state["project_stage"] = "Screening"
 
 
 st.title("Jumbo Location Analyzer")
@@ -767,16 +809,21 @@ with st.container(border=True):
         "One place to create, select, load and save the complete location project."
     )
 
-    project_left, project_right = st.columns([1.25, 1])
+    project_left, project_middle, project_right = st.columns([1.25, 1, 0.85])
     selected_project = project_left.selectbox(
         "Saved project",
         ["— Select project —"] + sorted(saved_projects.keys()),
         key="project_selector",
     )
-    project_name = project_right.text_input(
+    project_name = project_middle.text_input(
         "Project name",
         key="project_name_input",
         placeholder="Example: Kyiv / Karavan - Base",
+    )
+    project_right.selectbox(
+        "Stage",
+        ["Screening", "Due diligence", "Negotiation", "Approved", "On hold", "Rejected"],
+        key="project_stage",
     )
 
     action_new, action_load, action_save = st.columns(3)
@@ -1128,6 +1175,19 @@ if analysis:
             columns=["Module", "Status", "Source / method"],
         )
         st.dataframe(coverage, use_container_width=True, hide_index=True)
+
+        comparison_df = build_project_comparison(saved_projects)
+        if len(comparison_df) > 1:
+            with st.expander("Compare saved projects", expanded=False):
+                st.caption(
+                    "Commercial comparison uses only the assumptions saved in each project. "
+                    "No hidden ranking or invented market data is applied."
+                )
+                st.dataframe(
+                    comparison_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     with tab2:
         st.markdown("### Catchment & demand")
