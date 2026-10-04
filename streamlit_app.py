@@ -25,7 +25,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v11.1"
+BUILD_VERSION = "2026-10-04-v11.2"
 
 
 BASE_ECON_STATE = {
@@ -778,6 +778,86 @@ def worldpop_population_geojson(geometry, year=2025):
     raise TimeoutError(f"WorldPop population request timed out. Last response: {last_payload}")
 
 
+
+@st.cache_data(ttl=86400)
+def worldpop_children_geojson(geometry, year=2025, age_range=(0, 18)):
+    """Calculate WorldPop age/sex population inside a polygon and return children 0-18."""
+    if not isinstance(geometry, dict) or geometry.get("type") not in {"Polygon", "MultiPolygon"}:
+        raise ValueError("WorldPop requires a Polygon or MultiPolygon geometry.")
+
+    payload = {
+        "geojson": geometry,
+        "year": year,
+        "age_range": [int(age_range[0]), int(age_range[1])],
+        "sex": "both",
+        "resolution": "1km",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{WORLDPOP_URL}/agesex",
+        data=body,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        submitted = json.loads(response.read().decode("utf-8"))
+
+    task_id = submitted.get("task_id")
+    if not task_id:
+        raise RuntimeError(f"WorldPop age/sex did not return a task_id: {submitted}")
+
+    last_payload = None
+    for _ in range(30):
+        status_req = urllib.request.Request(
+            f"{WORLDPOP_URL}/tasks/{task_id}",
+            headers={"User-Agent": USER_AGENT},
+        )
+        with urllib.request.urlopen(status_req, timeout=30) as response:
+            last_payload = json.loads(response.read().decode("utf-8"))
+
+        status = last_payload.get("status")
+        if status == "success":
+            result = last_payload.get("result")
+            if not isinstance(result, dict):
+                raise RuntimeError(
+                    f"WorldPop age/sex success response had no result object: {last_payload}"
+                )
+            pyramid = result.get("agesex_pyramid") or result.get("agesexpyramid")
+            if not isinstance(pyramid, list):
+                raise RuntimeError(
+                    f"WorldPop age/sex result had no pyramid: {last_payload}"
+                )
+
+            total_children = 0.0
+            for row in pyramid:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("total") is not None:
+                    total_children += float(row.get("total") or 0)
+                else:
+                    total_children += float(row.get("male") or 0)
+                    total_children += float(row.get("female") or 0)
+
+            return {
+                "children_population": total_children,
+                "age_range": list(age_range),
+                "pyramid": pyramid,
+            }
+        if status == "failure":
+            raise RuntimeError(
+                last_payload.get("error")
+                or f"WorldPop age/sex request failed: {last_payload}"
+            )
+        time.sleep(1)
+
+    raise TimeoutError(
+        f"WorldPop age/sex request timed out. Last response: {last_payload}"
+    )
+
+
 SCENARIO_FILE = "saved_scenarios.json"
 
 
@@ -1140,6 +1220,26 @@ if analyze:
                         except Exception as exc:
                             population_errors[label] = str(exc)
 
+                    children_population = {}
+                    children_population_errors = {}
+                    for minutes in DRIVE_TIME_MINUTES:
+                        label = f"{minutes} min"
+                        geometry = drive_time_geometry(drive_time_geojson, minutes)
+                        if geometry is None:
+                            children_population_errors[label] = "Drive-time geometry unavailable"
+                            continue
+                        try:
+                            result = worldpop_children_geojson(
+                                geometry,
+                                year=2025,
+                                age_range=(0, 18),
+                            )
+                            result["zone_mode"] = drive_time_mode
+                            result["zone_source"] = drive_time_source
+                            children_population[label] = result
+                        except Exception as exc:
+                            children_population_errors[label] = str(exc)
+
                     st.session_state["analysis"] = {
                         "query": location.strip(),
                         "geo": geo,
@@ -1149,6 +1249,8 @@ if analyze:
                         "retail_error": retail_error,
                         "population": population,
                         "population_errors": population_errors,
+                        "children_population": children_population,
+                        "children_population_errors": children_population_errors,
                         "drive_time_geojson": drive_time_geojson,
                         "drive_time_source": drive_time_source,
                         "drive_time_mode": drive_time_mode,
@@ -1168,6 +1270,7 @@ if analysis:
     retail = analysis["retail"]
     retail_source = analysis.get("retail_source") or "Unknown"
     population = analysis.get("population", {})
+    children_population = analysis.get("children_population", {})
     drive_time_geojson = analysis.get("drive_time_geojson", {})
     drive_time_source = analysis.get("drive_time_source") or "Unknown"
     drive_time_mode = analysis.get("drive_time_mode") or "unavailable"
@@ -1269,6 +1372,10 @@ if analysis:
         drive_time_mode == "live"
         and len(drive_time_geojson.get("features", [])) >= len(DRIVE_TIME_MINUTES)
     )
+    children_complete = all(
+        children_population.get(f"{minutes} min", {}).get("children_population") is not None
+        for minutes in DRIVE_TIME_MINUTES
+    )
 
     for item in access:
         item["distance_km"] = distance_km(
@@ -1318,10 +1425,11 @@ if analysis:
         + (1 if population_complete else 0)
         + (1 if access_complete else 0)
         + (1 if drive_time_live else 0)
+        + (1 if children_complete else 0)
     )
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Live data coverage", f"{live_modules} / 6 modules")
+    c1.metric("Live data coverage", f"{live_modules} / 7 modules")
     c2.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
     c3.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
     c4.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
@@ -1373,6 +1481,11 @@ if analysis:
                     if population_complete
                     else "Needs retry",
                     "WorldPop 2025 inside the displayed 15/30/40-minute zones",
+                ],
+                [
+                    "Children 0-18",
+                    "Live" if children_complete else "Needs retry",
+                    "WorldPop age/sex inside the displayed 15/30/40-minute zones",
                 ],
                 ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                 ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
@@ -1499,6 +1612,67 @@ if analysis:
                 st.code(f"{label}: {error}")
         elif not population_complete:
             st.code("No detailed WorldPop error was captured in this build.")
+
+        st.markdown("#### Children demand")
+        child15 = children_population.get("15 min", {}).get("children_population")
+        child30 = children_population.get("30 min", {}).get("children_population")
+        child40 = children_population.get("40 min", {}).get("children_population")
+
+        ch1, ch2, ch3 = st.columns(3)
+        ch1.metric("Children 0-18 / 15 min", f"{child15:,.0f}" if child15 is not None else "—")
+        ch2.metric("Children 0-18 / 30 min", f"{child30:,.0f}" if child30 is not None else "—")
+        ch3.metric("Children 0-18 / 40 min", f"{child40:,.0f}" if child40 is not None else "—")
+
+        child_rows = []
+        for minutes in DRIVE_TIME_MINUTES:
+            label = f"{minutes} min"
+            total_population = population.get(label, {}).get("total_population")
+            children = children_population.get(label, {}).get("children_population")
+            child_share = (
+                children / total_population * 100
+                if children is not None and total_population
+                else None
+            )
+            if children is not None or total_population is not None:
+                child_rows.append(
+                    {
+                        "Catchment": label,
+                        "Total population": round(total_population)
+                        if total_population is not None
+                        else None,
+                        "Children 0-18": round(children)
+                        if children is not None
+                        else None,
+                        "Children share, %": round(child_share, 1)
+                        if child_share is not None
+                        else None,
+                    }
+                )
+
+        if child_rows:
+            with st.expander("Children profile by catchment", expanded=False):
+                st.caption(
+                    "This is a demographic demand indicator, not a count of households or families."
+                )
+                st.dataframe(
+                    pd.DataFrame(child_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        children_population_errors = analysis.get("children_population_errors", {})
+        if children_complete:
+            st.success("WorldPop age/sex status: children 0-18 loaded for all three catchments.")
+        elif children_population:
+            loaded_labels = ", ".join(sorted(children_population.keys()))
+            st.warning(f"Children profile status: partial data loaded for {loaded_labels}.")
+        else:
+            st.warning("Children 0-18 demographic layer is temporarily unavailable.")
+
+        if children_population_errors:
+            with st.expander("Children demographic diagnostics", expanded=False):
+                for label, error in children_population_errors.items():
+                    st.code(f"{label}: {error}")
 
     with tab3:
         st.markdown("### Traffic & access")
