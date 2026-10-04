@@ -20,7 +20,7 @@ OVERPASS_URLS = [
     "https://z.overpass-api.de/api/interpreter",
     "https://overpass.osm.ch/api/interpreter",
 ]
-USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
+USER_AGENT = "JumboLocationAnalyzer/1.0 (site-selection decision support)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
@@ -1602,8 +1602,9 @@ if analysis:
     with tab1:
         st.markdown("### Decision dashboard")
         st.info(
-            "Live now: exact site geocoding, mapped nearby retail fabric and commercial economics. "
-            "Next: drive-time catchment, demographic demand, traffic and a calibrated Jumbo sales model."
+            "Decision view combines site geocoding, 15/30/40-minute drive-time catchments, "
+            "population and children demand, retail/competition context, access and commercial economics. "
+            "Measured footfall and a calibrated Jumbo sales forecast remain separate future data/model layers."
         )
 
         if retail_data_ok:
@@ -2182,14 +2183,16 @@ if analysis:
             "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
         )
         st.write(
-            "**Catchment:** current 5/10/15-minute values use WorldPop population over provisional ~2/4/6 km circular proxies. "
-            "They are not yet true road-network drive-time isochrones."
+            "**Catchment:** the app requests 15/30/40-minute car isochrones from Valhalla using the OpenStreetMap road network. "
+            "WorldPop population and children 0-18 are calculated inside the same displayed polygons. "
+            "If routing is unavailable, the app switches to explicitly labelled 6/12/16 km proxy zones rather than presenting them as true drive-time."
         )
 
         provider_rows = [
             ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
             ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
-            ["WorldPop", "Population", "Active when service responds", "No key in current implementation"],
+            ["Valhalla / OpenStreetMap", "15/30/40-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
+            ["WorldPop", "Population + age 0-18 inside catchments", "Active when service responds", "No key in current implementation"],
             ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
             ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
             ["Measured mobility / traffic provider", "Car counts / footfall", "Not connected", "Future provider"],
@@ -2206,6 +2209,6 @@ if analysis:
 
 st.divider()
 st.caption(
-    "Prototype. Public map/POI data can be incomplete; investment decisions should use verified commercial, "
-    "traffic and demographic sources."
+    "Decision-support release candidate. Public routing, map/POI and demographic sources can be incomplete or temporarily unavailable; "
+    "final investment decisions should use verified commercial and measured traffic data."
 )
