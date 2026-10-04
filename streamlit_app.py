@@ -25,7 +25,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v11.0"
+BUILD_VERSION = "2026-10-04-v11.1"
 
 
 BASE_ECON_STATE = {
@@ -714,10 +714,26 @@ def render_drive_time_map(lat, lon, geojson):
     st.pydeck_chart(deck, use_container_width=True)
 
 
+def drive_time_geometry(geojson, minutes):
+    """Return the polygon/multipolygon geometry for one drive-time contour."""
+    if not isinstance(geojson, dict):
+        return None
+    for feature in geojson.get("features", []):
+        if feature.get("properties", {}).get("minutes") == minutes:
+            geometry = feature.get("geometry")
+            if isinstance(geometry, dict) and geometry.get("type") in {"Polygon", "MultiPolygon"}:
+                return geometry
+    return None
+
+
 @st.cache_data(ttl=86400)
-def worldpop_population(lat, lon, radius_km, year=2025):
+def worldpop_population_geojson(geometry, year=2025):
+    """Calculate WorldPop population inside an arbitrary polygon geometry."""
+    if not isinstance(geometry, dict) or geometry.get("type") not in {"Polygon", "MultiPolygon"}:
+        raise ValueError("WorldPop requires a Polygon or MultiPolygon geometry.")
+
     payload = {
-        "geojson": circle_polygon(lat, lon, radius_km),
+        "geojson": geometry,
         "year": year,
         "resolution": "1km",
     }
@@ -1103,14 +1119,21 @@ if analyze:
 
                     population = {}
                     population_errors = {}
-                    # The population layer is still a separate provisional radius-based proxy.
-                    # It will be replaced with polygon-based zonal population in a later build.
-                    for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
+                    for minutes in DRIVE_TIME_MINUTES:
+                        label = f"{minutes} min"
+                        geometry = drive_time_geometry(drive_time_geojson, minutes)
+                        if geometry is None:
+                            population_errors[label] = "Drive-time geometry unavailable"
+                            continue
                         try:
-                            result = worldpop_population(
-                                geo["lat"], geo["lon"], radius, year=2025
+                            result = worldpop_population_geojson(
+                                geometry,
+                                year=2025,
                             )
                             if result.get("total_population") is not None:
+                                result = dict(result)
+                                result["zone_mode"] = drive_time_mode
+                                result["zone_source"] = drive_time_source
                                 population[label] = result
                             else:
                                 population_errors[label] = "No population value returned"
@@ -1239,8 +1262,8 @@ if analysis:
     )
 
     population_complete = all(
-        population.get(label, {}).get("total_population") is not None
-        for label in ["5 min", "10 min", "15 min"]
+        population.get(f"{minutes} min", {}).get("total_population") is not None
+        for minutes in DRIVE_TIME_MINUTES
     )
     drive_time_live = (
         drive_time_mode == "live"
@@ -1344,7 +1367,13 @@ if analysis:
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
                 ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", retail_source],
                 ["Drive-time isochrones", "Live" if drive_time_live else "Fallback proxy", drive_time_source],
-                ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional radius proxy"],
+                [
+                    "Catchment population",
+                    ("Live in drive-time polygons" if drive_time_live else "Proxy-zone population")
+                    if population_complete
+                    else "Needs retry",
+                    "WorldPop 2025 inside the displayed 15/30/40-minute zones",
+                ],
                 ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                 ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
                 ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
@@ -1399,56 +1428,69 @@ if analysis:
                 with st.expander("Drive-time provider diagnostic", expanded=False):
                     st.code(analysis["drive_time_error"])
 
-        st.markdown("#### Population proxy")
+        st.markdown("#### Population inside catchment")
         st.caption(
-            "WorldPop is still calculated on provisional circular zones in this build. "
-            "The next step is polygon-based population inside the real 15/30/40-minute isochrones."
+            "WorldPop 2025 is calculated inside the same 15/30/40-minute zones shown on the map. "
+            "When live routing is available, these are real road-network polygons."
         )
-        pop5 = population.get("5 min", {}).get("total_population")
-        pop10 = population.get("10 min", {}).get("total_population")
+
         pop15 = population.get("15 min", {}).get("total_population")
+        pop30 = population.get("30 min", {}).get("total_population")
+        pop40 = population.get("40 min", {}).get("total_population")
 
         d1, d2, d3 = st.columns(3)
-        d1.metric("5-min population proxy", f"{pop5:,.0f}" if pop5 is not None else "—")
-        d2.metric("10-min population proxy", f"{pop10:,.0f}" if pop10 is not None else "—")
-        d3.metric("15-min population proxy", f"{pop15:,.0f}" if pop15 is not None else "—")
+        d1.metric("15-min population", f"{pop15:,.0f}" if pop15 is not None else "—")
+        d2.metric("30-min population", f"{pop30:,.0f}" if pop30 is not None else "—")
+        d3.metric("40-min population", f"{pop40:,.0f}" if pop40 is not None else "—")
 
-        if population_complete:
+        if population_complete and drive_time_live:
             st.success(
-                "Population source: WorldPop 2025. Current zones are provisional circular "
-                "urban-drive proxies (~2/4/6 km for 5/10/15 minutes), not final road isochrones."
+                "WorldPop status: population loaded for all three real 15/30/40-minute drive-time polygons."
+            )
+        elif population_complete:
+            st.warning(
+                "WorldPop loaded for all three displayed zones, but routing is in fallback mode, "
+                "so these population values belong to proxy zones rather than true road-network isochrones."
             )
         elif population:
             st.warning(
                 "WorldPop returned population for only some catchment zones. "
                 "The available values are shown below; retry the analysis for the missing zones."
             )
-            rows = []
-            for label, radius in [("5 min", 2), ("10 min", 4), ("15 min", 6)]:
-                item = population.get(label, {})
-                if item:
-                    rows.append({
-                        "Catchment": label,
-                        "Proxy radius, km": radius,
-                        "Population": round(item.get("total_population", 0)),
-                        "Area, km²": round(item.get("area_km2", 0), 1),
-                        "Density / km²": round(item.get("population_density", 0)),
-                    })
-            if rows:
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
         else:
             st.warning(
                 "WorldPop demographic layer is temporarily unavailable. "
-                "Retail and map analysis still works."
+                "Drive-time, retail and access analysis still works."
             )
 
+        rows = []
+        for minutes in DRIVE_TIME_MINUTES:
+            label = f"{minutes} min"
+            item = population.get(label, {})
+            if item:
+                rows.append(
+                    {
+                        "Catchment": label,
+                        "Population": round(item.get("total_population", 0)),
+                        "Area, km²": round(item.get("area_km2", 0), 1)
+                        if item.get("area_km2") is not None
+                        else None,
+                        "Density / km²": round(item.get("population_density", 0))
+                        if item.get("population_density") is not None
+                        else None,
+                        "Zone type": "Road-network isochrone"
+                        if item.get("zone_mode") == "live"
+                        else "Fallback proxy",
+                    }
+                )
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
         population_errors = analysis.get("population_errors", {})
-        if population_complete:
-            st.success("WorldPop status: all 3 catchment population values loaded.")
-        elif population:
+        if not population_complete and population:
             loaded_labels = ", ".join(sorted(population.keys()))
             st.warning(f"WorldPop status: partial data loaded for {loaded_labels}.")
-        else:
+        elif not population:
             st.error("WorldPop status: no population values loaded.")
 
         if population_errors:
