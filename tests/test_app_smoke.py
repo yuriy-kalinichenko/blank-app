@@ -20,3 +20,12 @@ def test_app_starts_and_project_workspace_is_present():
     assert "↧ Load" in button_labels
     assert "Save" in button_labels
     assert "Analyze location" in button_labels
+
+    expander_labels = [item.label for item in at.expander]
+    assert "Project library · backup & transfer" in expander_labels
+
+    download_labels = [item.label for item in at.download_button]
+    assert "Export library" in download_labels
+
+    uploader_keys = [item.key for item in at.file_uploader]
+    assert "project_import_library_file" in uploader_keys
