@@ -1156,6 +1156,9 @@ if analysis:
             "or save the current assumptions as a project."
         )
 
+        if st.session_state.pop("econ_reset_project_selector", False):
+            st.session_state["econ_saved_scenario"] = "— Select project —"
+
         selected_scenario = st.selectbox(
             "Project",
             ["— Select project —"] + sorted(saved_scenarios.keys()),
@@ -1196,7 +1199,7 @@ if analysis:
             }
             for state_key, state_value in fresh_state.items():
                 st.session_state[state_key] = state_value
-            st.session_state["econ_saved_scenario"] = "— Select project —"
+            st.session_state["econ_reset_project_selector"] = True
             st.rerun()
 
         if load_project_clicked:
