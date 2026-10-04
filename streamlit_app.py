@@ -864,7 +864,10 @@ def worldpop_children_geojson(geometry, year=2025, age_range=(0, 18)):
     )
 
 
-SCENARIO_FILE = "saved_scenarios.json"\n\n\ndef load_saved_scenarios():
+SCENARIO_FILE = "saved_scenarios.json"
+
+
+def load_saved_scenarios():
     default_scenarios = default_project_library()
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
