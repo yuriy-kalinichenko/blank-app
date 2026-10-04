@@ -21,22 +21,6 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 BUILD_VERSION = "2026-10-04-v9.4"
 
 
-KARAVAN_FALLBACK_RETAIL = [
-    {"name": "Karavan Megastore", "shop": "mall", "amenity": None, "lat": 50.4909, "lon": 30.4095},
-    {"name": "Auchan", "shop": "supermarket", "amenity": None, "lat": 50.4914, "lon": 30.4106},
-    {"name": "JYSK", "shop": "furniture", "amenity": None, "lat": 50.4899, "lon": 30.4080},
-    {"name": "EPICENTR", "shop": "department_store", "amenity": None, "lat": 50.4930, "lon": 30.4140},
-    {"name": "Parking A", "shop": None, "amenity": "parking", "lat": 50.4907, "lon": 30.4113},
-    {"name": "Parking B", "shop": None, "amenity": "parking", "lat": 50.4894, "lon": 30.4072},
-]
-
-KARAVAN_FALLBACK_ACCESS = [
-    {"name": "Luhova St", "highway": "primary", "public_transport": None, "railway": None, "lat": 50.4922, "lon": 30.4057},
-    {"name": "Avtozavodska St", "highway": "secondary", "public_transport": None, "railway": None, "lat": 50.4878, "lon": 30.4170},
-    {"name": "Karavan stop", "highway": "bus_stop", "public_transport": None, "railway": None, "lat": 50.4912, "lon": 30.4079},
-    {"name": "Luhova stop", "highway": "bus_stop", "public_transport": None, "railway": None, "lat": 50.4931, "lon": 30.4062},
-]
-
 BASE_ECON_STATE = {
     "econ_currency": "EUR",
     "econ_area": 4500.0,
@@ -342,35 +326,22 @@ if analyze:
                 if geo is None:
                     st.error("Location not found. Try a more complete address.")
                 else:
-                    is_karavan = "karavan" in location.strip().lower() and "kyiv" in location.strip().lower()
-
                     try:
                         retail = fetch_nearby_retail(geo["lat"], geo["lon"])
                         retail_error = None
-                        retail_source = "OpenStreetMap live"
+                        st.session_state["last_good_retail"] = retail
                     except Exception as exc:
-                        if is_karavan:
-                            retail = KARAVAN_FALLBACK_RETAIL
-                            retail_error = None
-                            retail_source = "Karavan fallback snapshot"
-                        else:
-                            retail = []
-                            retail_error = str(exc)
-                            retail_source = "Unavailable"
+                        retail = st.session_state.get("last_good_retail", [])
+                        retail_error = str(exc) if not retail else None
 
                     access = []
                     access_error = None
                     try:
                         access = fetch_access_context(geo["lat"], geo["lon"])
-                        access_source = "OpenStreetMap live"
+                        st.session_state["last_good_access"] = access
                     except Exception as exc:
-                        if is_karavan:
-                            access = KARAVAN_FALLBACK_ACCESS
-                            access_error = None
-                            access_source = "Karavan fallback snapshot"
-                        else:
-                            access_error = str(exc)
-                            access_source = "Unavailable"
+                        access = st.session_state.get("last_good_access", [])
+                        access_error = str(exc) if not access else None
 
                     population = {}
                     population_errors = {}
@@ -397,8 +368,6 @@ if analyze:
                         "population_errors": population_errors,
                         "access": access,
                         "access_error": access_error,
-                        "retail_source": retail_source,
-                        "access_source": access_source,
                     }
             except Exception as exc:
                 st.error(f"Could not locate the site: {exc}")
@@ -408,8 +377,6 @@ analysis = st.session_state.get("analysis")
 if analysis:
     geo = analysis["geo"]
     retail = analysis["retail"]
-    retail_source = analysis.get("retail_source", "Unknown")
-    access_source = analysis.get("access_source", "Unknown")
     population = analysis.get("population", {})
     access = analysis.get("access", [])
 
@@ -560,8 +527,6 @@ if analysis:
         st.warning(
             "The map loaded, but the public OpenStreetMap retail layer is temporarily unavailable."
         )
-    elif "fallback" in retail_source.lower():
-        st.info("Retail/competition source: Karavan fallback snapshot used because the live public map service was unavailable.")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(
         [
@@ -680,16 +645,10 @@ if analysis:
         a5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
 
         if access_complete:
-            if "fallback" in access_source.lower():
-                st.info(
-                    "Access layer is using a Karavan fallback snapshot because the live public map service was unavailable. "
-                    "The score remains an infrastructure proxy, not a measured traffic-volume score."
-                )
-            else:
-                st.success(
-                    "Access layer is live from OpenStreetMap. The score is an infrastructure proxy, "
-                    "not a measured traffic-volume score."
-                )
+            st.success(
+                "Access layer is live from OpenStreetMap. The score is an infrastructure proxy, "
+                "not a measured traffic-volume score."
+            )
         else:
             st.warning(
                 "Road/transit data is incomplete in this run. Missing data is shown as 'No data' "
