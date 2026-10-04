@@ -1,7 +1,7 @@
 [project]
-name = "blank-app-template"
-version = "0.1.0"
-description = "A simple Streamlit app template."
+name = "jumbo-location-analyzer"
+version = "0.10.2"
+description = "Retail location intelligence and commercial screening app for Jumbo expansion projects."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

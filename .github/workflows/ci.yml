@@ -1,0 +1,28 @@
+name: app-check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install test dependencies
+        run: python -m pip install "streamlit>=1.61.1" pytest
+
+      - name: Compile application
+        run: python -m py_compile streamlit_app.py
+
+      - name: Run smoke test
+        run: pytest -q tests/test_app_smoke.py
