@@ -11,12 +11,14 @@ st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URLS = [
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.1"
+BUILD_VERSION = "2026-10-04-v9.2"
 
 
 BASE_ECON_STATE = {
@@ -45,7 +47,7 @@ def run_overpass_query(query):
                 headers={"User-Agent": USER_AGENT},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=35) as response:
+            with urllib.request.urlopen(req, timeout=15) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
             errors.append(f"{endpoint}: {exc}")
@@ -712,21 +714,12 @@ if analysis:
             "It does not invent rent, CAPEX, sales or margin from public map data."
         )
 
-        st.success("Base scenario loader is active in v9.")
+        st.success("Base scenario loader is active.")
         if st.button(
             "LOAD BASE SCENARIO NOW",
             type="primary",
             use_container_width=True,
             key="econ_load_base_v9",
-        ):
-            for state_key, state_value in BASE_ECON_STATE.items():
-                st.session_state[state_key] = state_value
-            st.rerun()
-
-        if st.button(
-            "Load Base Scenario",
-            use_container_width=True,
-            key="econ_load_base_direct",
         ):
             for state_key, state_value in BASE_ECON_STATE.items():
                 st.session_state[state_key] = state_value
