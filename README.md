@@ -1,16 +1,30 @@
 # Jumbo Location Analyzer
 
-Streamlit application for screening and comparing potential Jumbo retail locations.
+Streamlit application for screening, comparing and managing potential Jumbo retail locations.
+
+## Current build
+
+**2026-10-04-v10.2**
 
 ## What the app does
 
 - geocodes candidate locations;
-- analyzes nearby retail, parking and access context from OpenStreetMap;
+- analyzes nearby retail, competition, parking and access context from OpenStreetMap;
+- estimates catchment population with explicit source/method transparency;
 - uses multiple provider fallbacks for better resilience;
-- supports location comparison and economic scenario analysis;
-- exposes methodology and diagnostics inside the app.
+- manages complete site projects through a compact Project Workspace;
+- tracks project lifecycle stage from screening through approval/rejection;
+- compares saved projects on commercial assumptions such as sales, EBITDA margin and payback;
+- supports commercial scenario analysis and methodology diagnostics.
 
-Current app build: **2026-10-04-v10.0**
+## Product workflow
+
+1. Create or select a project.
+2. Enter the candidate site and run live location analysis.
+3. Review demand, access and competitive context.
+4. Enter commercial assumptions.
+5. Save the project and compare it with other candidate sites.
+6. Move the project through the appropriate decision stage.
 
 ## Run locally
 
@@ -22,18 +36,17 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-## Main application file
+## Quality checks
 
-`streamlit_app.py`
+The repository includes a Streamlit smoke test and a GitHub Actions check that compiles the application and verifies that the core Project Workspace renders successfully.
 
-## Deployment checklist
+## Deployment
 
-1. Push the target branch to GitHub.
-2. Create a Streamlit deployment using this repository.
-3. Set the entrypoint to `streamlit_app.py`.
-4. Add any required secrets in the deployment settings rather than committing them to GitHub.
-5. Test geocoding, retail/access lookups, comparison views and economics before sharing the public link.
+1. Deploy this GitHub repository to Streamlit.
+2. Set the entrypoint to `streamlit_app.py`.
+3. Keep credentials and API secrets in deployment secrets/environment variables rather than source control.
+4. Validate live geocoding, retail/access providers, project save/load, comparison and economics before sharing the public app link.
 
 ## Sharing
 
-Once deployed, share the Streamlit app URL rather than the GitHub repository URL with end users.
+For end users, share the deployed Streamlit application URL rather than the GitHub repository URL.
