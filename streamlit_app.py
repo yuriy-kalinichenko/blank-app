@@ -478,15 +478,17 @@ if analysis:
     parking_score = min(25, len(parking_1km) * 2)
     access_score = min(100, road_score + network_score + transit_score + parking_score)
 
-    access_complete = bool(access) and nearest_major_road_km is not None
-    live_modules = 2 + (1 if population_complete else 0) + (1 if access_complete else 0)
+    retail_data_ok = not analysis.get("retail_error")
+    access_data_ok = not analysis.get("access_error") and bool(access)
+    access_complete = access_data_ok and nearest_major_road_km is not None
+    live_modules = 2 + (1 if retail_data_ok else 0) + (1 if population_complete else 0) + (1 if access_complete else 0)
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Live data coverage", f"{live_modules} / 5 modules")
-    c2.metric("Direct competitors / 1 km", len(comp_1km))
-    c3.metric("Direct competitors / 3 km", len(comp_3km))
-    c4.metric("Retail anchors / 3 km", len(anchor_3km))
-    c5.metric("Parking POIs / 1 km", len(parking_1km))
+    c2.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
+    c3.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
+    c4.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
+    c5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
 
     if analysis.get("retail_error"):
         st.warning(
@@ -510,17 +512,20 @@ if analysis:
             "Next: drive-time catchment, demographic demand, traffic and a calibrated Jumbo sales model."
         )
 
-        st.write(
-            f"Competition pressure proxy: **{competition_pressure}/100** · "
-            f"Direct competitors: **{len(comp_1km)} within 1 km**, **{len(comp_3km)} within 3 km**."
-        )
+        if retail_data_ok:
+            st.write(
+                f"Competition pressure proxy: **{competition_pressure}/100** · "
+                f"Direct competitors: **{len(comp_1km)} within 1 km**, **{len(comp_3km)} within 3 km**."
+            )
+        else:
+            st.write("Competition pressure proxy: **No data** — retail source unavailable in this run.")
 
         if len(anchor_1km) > 0:
             st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
         coverage = pd.DataFrame(
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
-                ["Nearby retail / competition", "Live", "OpenStreetMap POIs"],
+                ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", "OpenStreetMap POIs"],
                 ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
                 ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                 ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
@@ -597,14 +602,14 @@ if analysis:
         st.caption(f"Build: {BUILD_VERSION}")
 
         a1, a2, a3, a4, a5 = st.columns(5)
-        a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "—")
+        a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "No data")
         a2.metric(
             "Nearest major road",
-            f"{nearest_major_road_km:.2f} km" if nearest_major_road_km is not None else "—",
+            f"{nearest_major_road_km:.2f} km" if access_complete else "No data",
         )
-        a3.metric("Named major roads / 1.5 km", len(named_major_roads))
-        a4.metric("Transit stops / 1.5 km", len(transit_stops))
-        a5.metric("Parking POIs / 1 km", len(parking_1km))
+        a3.metric("Named major roads / 1.5 km", len(named_major_roads) if access_data_ok else "No data")
+        a4.metric("Transit stops / 1.5 km", len(transit_stops) if access_data_ok else "No data")
+        a5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
 
         if access_complete:
             st.success(
@@ -620,7 +625,6 @@ if analysis:
         if named_major_roads:
             st.write("Major road context: " + ", ".join(named_major_roads[:8]))
 
-        access_data_ok = not analysis.get("access_error") and bool(access)
         score_table = pd.DataFrame(
             [
                 ["Major-road proximity", road_score if access_data_ok else "No data", 35],
@@ -649,23 +653,23 @@ if analysis:
         )
 
         q1, q2, q3, q4, q5 = st.columns(5)
-        q1.metric("Competition pressure proxy", f"{competition_pressure}/100")
+        q1.metric("Competition pressure proxy", f"{competition_pressure}/100" if retail_data_ok else "No data")
         q2.metric(
             "Nearest direct competitor",
-            f"{nearest_competitor_km:.2f} km" if nearest_competitor_km is not None else "None in 3 km",
+            (f"{nearest_competitor_km:.2f} km" if nearest_competitor_km is not None else "None in 3 km") if retail_data_ok else "No data",
         )
-        q3.metric("Direct competitors / 1 km", len(comp_1km))
-        q4.metric("Direct competitors / 3 km", len(comp_3km))
-        q5.metric("Retail anchors / 3 km", len(anchor_3km))
+        q3.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
+        q4.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
+        q5.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
 
         if nearest_competitor_name:
             st.write(f"Nearest named direct competitor: **{nearest_competitor_name}**")
 
         pressure_table = pd.DataFrame(
             [
-                ["Nearest-competitor proximity", competition_proximity_points, 40],
-                ["Direct competitors within 1 km", competition_1km_points, 30],
-                ["Additional direct competitors from 1–3 km", competition_outer_points, 30],
+                ["Nearest-competitor proximity", competition_proximity_points if retail_data_ok else "No data", 40],
+                ["Direct competitors within 1 km", competition_1km_points if retail_data_ok else "No data", 30],
+                ["Additional direct competitors from 1–3 km", competition_outer_points if retail_data_ok else "No data", 30],
             ],
             columns=["Competition component", "Current points", "Maximum weight"],
         )
@@ -690,8 +694,10 @@ if analysis:
                 "Distance, km", na_position="last"
             )
             st.dataframe(comp_df, use_container_width=True, hide_index=True)
-        else:
+        elif retail_data_ok:
             st.write("No named direct competitor POIs were found in the public OSM layer within 3 km.")
+        else:
+            st.warning("Competition data is unavailable in this run; the app will retry the backup source on the next analysis.")
         st.caption(
             f"Related retail POIs in the scan: {len(related_retail)}. "
             f"Retail anchors in 1 km: {len(anchor_1km)}. "
