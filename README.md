@@ -4,7 +4,7 @@ Streamlit application for screening, comparing and managing potential Jumbo reta
 
 ## Current build
 
-**2026-10-04-v11.0**
+**2026-10-04-v11.1**
 
 ## What the app does
 
@@ -12,7 +12,7 @@ Streamlit application for screening, comparing and managing potential Jumbo reta
 - calculates real **15 / 30 / 40 minute car drive-time isochrones** with Valhalla routing;
 - falls back to clearly labelled distance proxies when the routing provider is unavailable;
 - analyzes nearby retail, competition, parking and access context from OpenStreetMap;
-- estimates catchment population with explicit source/method transparency;
+- calculates WorldPop population directly inside the displayed 15/30/40-minute catchment zones;
 - uses multiple provider fallbacks for better resilience;
 - manages complete site projects through a compact Project Workspace;
 - tracks project lifecycle stage from screening through approval/rejection;
@@ -35,7 +35,7 @@ The live drive-time layer uses the Valhalla road-network isochrone service with 
 
 If the live routing service is unavailable, the app shows an explicit fallback proxy instead of presenting a circular radius as a real drive-time zone.
 
-The current WorldPop population layer remains a separate provisional radius-based proxy. A later build should calculate population directly inside the live drive-time polygons.
+WorldPop population is calculated inside the same 15/30/40-minute polygons shown in the app. When live routing is available, those are real road-network isochrones; when routing falls back, the population result is explicitly labelled as belonging to proxy zones.
 
 ## Run locally
 
