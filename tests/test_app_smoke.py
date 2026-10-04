@@ -1,8 +1,13 @@
+from pathlib import Path
+
 from streamlit.testing.v1 import AppTest
 
 
+APP_PATH = Path(__file__).resolve().parents[1] / "streamlit_app.py"
+
+
 def test_app_starts_and_project_workspace_is_present():
-    at = AppTest.from_file("streamlit_app.py").run(timeout=15)
+    at = AppTest.from_file(APP_PATH).run(timeout=15)
 
     assert len(at.exception) == 0
     assert at.title[0].value == "Jumbo Location Analyzer"
