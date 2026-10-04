@@ -18,7 +18,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.2"
+BUILD_VERSION = "2026-10-04-v9.3"
 
 
 BASE_ECON_STATE = {
@@ -37,20 +37,48 @@ BASE_ECON_STATE = {
 
 
 def run_overpass_query(query):
-    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+    """Run an Overpass query with multiple endpoints and both POST/GET fallbacks."""
+    encoded = urllib.parse.urlencode({"data": query})
+    data = encoded.encode("utf-8")
     errors = []
+
     for endpoint in OVERPASS_URLS:
-        try:
-            req = urllib.request.Request(
-                endpoint,
-                data=data,
-                headers={"User-Agent": USER_AGENT},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=15) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except Exception as exc:
-            errors.append(f"{endpoint}: {exc}")
+        # POST is preferred, but some public mirrors/cloud egress paths intermittently
+        # reject POST requests. Fall back to GET before moving to the next mirror.
+        for method in ("POST", "GET"):
+            try:
+                if method == "POST":
+                    url = endpoint
+                    req = urllib.request.Request(
+                        url,
+                        data=data,
+                        headers={
+                            "User-Agent": USER_AGENT,
+                            "Accept": "application/json",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        method="POST",
+                    )
+                else:
+                    url = f"{endpoint}?{encoded}"
+                    req = urllib.request.Request(
+                        url,
+                        headers={
+                            "User-Agent": USER_AGENT,
+                            "Accept": "application/json",
+                        },
+                        method="GET",
+                    )
+
+                with urllib.request.urlopen(req, timeout=25) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+
+                if isinstance(payload, dict) and "elements" in payload:
+                    return payload
+                errors.append(f"{endpoint} {method}: invalid response")
+            except Exception as exc:
+                errors.append(f"{endpoint} {method}: {exc}")
+
     raise RuntimeError("All Overpass endpoints failed. " + " | ".join(errors))
 
 
