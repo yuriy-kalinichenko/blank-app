@@ -2248,15 +2248,32 @@ if analysis:
             disabled=not bool(active_project),
         )
         if save_commercial_clicked:
-            saved_projects[active_project] = capture_project_from_state(active_project)
-            st.session_state["project_library"] = saved_projects
-            try:
-                persist_saved_scenarios(saved_projects)
-                st.success(f"Commercial data saved to {active_project}.")
-            except OSError:
-                st.warning(
-                    "Commercial data is saved for this session, but local server storage is unavailable."
+            required_commercial = {
+                "Store area": area,
+                "Rent": rent,
+                "CAPEX": capex,
+                "Annual sales": annual_sales,
+                "Gross margin": gross_margin,
+            }
+            missing_commercial = [
+                label for label, value in required_commercial.items() if float(value or 0) <= 0
+            ]
+            if missing_commercial:
+                st.error(
+                    "Commercial data was not saved. Fill the required fields first: "
+                    + ", ".join(missing_commercial)
+                    + "."
                 )
+            else:
+                saved_projects[active_project] = capture_project_from_state(active_project)
+                st.session_state["project_library"] = saved_projects
+                try:
+                    persist_saved_scenarios(saved_projects)
+                    st.success(f"Commercial data saved to {active_project}.")
+                except OSError:
+                    st.warning(
+                        "Commercial data is saved for this session, but local server storage is unavailable."
+                    )
 
         annual_rent = area * rent * 12
         gross_profit = annual_sales * gross_margin / 100
