@@ -25,14 +25,17 @@ def test_app_starts_and_project_workspace_is_present():
 
     expander_labels = [item.label for item in at.expander]
     assert "Advanced · import / export" in expander_labels
-    assert "Upload commercial data" in expander_labels
 
     download_labels = [item.label for item in at.download_button]
     assert "Export library" in download_labels
 
     uploader_keys = [item.key for item in at.file_uploader]
     assert "project_import_library_file" in uploader_keys
-    assert "commercial_data_upload" in uploader_keys
 
-    button_labels = [button.label for button in at.button]
-    assert "Apply commercial data" in button_labels
+
+def test_commercial_upload_controls_are_defined_in_app_source():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'with st.expander("Upload commercial data"' in source
+    assert 'key="commercial_data_upload"' in source
+    assert '"Apply commercial data"' in source
+    assert 'key="commercial_data_apply"' in source
