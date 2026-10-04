@@ -20,7 +20,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.9"
+BUILD_VERSION = "2026-10-04-v10.0"
 
 
 BASE_ECON_STATE = {
@@ -1148,31 +1148,61 @@ if analysis:
             "It does not invent rent, CAPEX, sales or margin from public map data."
         )
 
-        st.success("Base scenario loader is active.")
-        if st.button(
-            "LOAD BASE SCENARIO NOW",
+        saved_scenarios = load_saved_scenarios()
+
+        st.markdown("#### Projects")
+        st.caption(
+            "Choose a saved project, then load it; create a fresh project; "
+            "or save the current assumptions as a project."
+        )
+
+        selected_scenario = st.selectbox(
+            "Project",
+            ["— Select project —"] + sorted(saved_scenarios.keys()),
+            key="econ_saved_scenario",
+        )
+
+        project_col1, project_col2, project_col3 = st.columns(3)
+        new_project_clicked = project_col1.button(
+            "＋ New project",
+            use_container_width=True,
+            key="econ_new_project_v10",
+        )
+        load_project_clicked = project_col2.button(
+            "↧ Load project",
             type="primary",
             use_container_width=True,
-            key="econ_load_base_v9",
-        ):
-            for state_key, state_value in BASE_ECON_STATE.items():
+            key="econ_load_project_v10",
+        )
+        save_project_clicked = project_col3.button(
+            "Save project",
+            use_container_width=True,
+            key="econ_save_project_v10",
+        )
+
+        if new_project_clicked:
+            fresh_state = {
+                "econ_currency": "EUR",
+                "econ_area": 0.0,
+                "econ_rent": 0.0,
+                "econ_capex": 0.0,
+                "econ_sales": 0.0,
+                "econ_margin": 0.0,
+                "econ_payroll": 0.0,
+                "econ_utilities": 0.0,
+                "econ_logistics": 0.0,
+                "econ_other_opex": 0.0,
+                "econ_scenario_name": f"{analysis['query']} - New project",
+            }
+            for state_key, state_value in fresh_state.items():
                 st.session_state[state_key] = state_value
+            st.session_state["econ_saved_scenario"] = "— Select project —"
             st.rerun()
 
-        saved_scenarios = load_saved_scenarios()
-        if saved_scenarios:
-            s1, s2 = st.columns([3, 1])
-            selected_scenario = s1.selectbox(
-                "Saved scenarios",
-                ["—"] + sorted(saved_scenarios.keys()),
-                key="econ_saved_scenario",
-            )
-            load_clicked = s2.button(
-                "Load scenario",
-                use_container_width=True,
-                key="econ_load_scenario",
-            )
-            if load_clicked and selected_scenario != "—":
+        if load_project_clicked:
+            if selected_scenario == "— Select project —":
+                st.warning("Select a project first.")
+            else:
                 saved = saved_scenarios[selected_scenario]
                 field_map = {
                     "currency": "econ_currency",
@@ -1191,6 +1221,9 @@ if analysis:
                         st.session_state[state_key] = saved[source_key]
                 st.session_state["econ_scenario_name"] = selected_scenario
                 st.rerun()
+
+        if save_project_clicked:
+            st.session_state["econ_save_project_requested"] = True
 
         currency = st.selectbox(
             "Currency",
@@ -1270,21 +1303,17 @@ if analysis:
             key="econ_other_opex",
         )
 
-        save_col1, save_col2 = st.columns([3, 1])
-        scenario_name = save_col1.text_input(
-            "Scenario name",
+        scenario_name = st.text_input(
+            "Project name",
             value=f"{analysis['query']} - Base",
             key="econ_scenario_name",
+            help="This name is used when you press Save project above.",
         )
-        if save_col2.button(
-            "Save Scenario",
-            type="primary",
-            use_container_width=True,
-            key="econ_save_scenario",
-        ):
+
+        if st.session_state.pop("econ_save_project_requested", False):
             clean_name = scenario_name.strip()
             if not clean_name:
-                st.warning("Enter a scenario name before saving.")
+                st.warning("Enter a project name before saving.")
             else:
                 saved_scenarios[clean_name] = {
                     "location": analysis["query"],
@@ -1301,9 +1330,9 @@ if analysis:
                 }
                 try:
                     persist_saved_scenarios(saved_scenarios)
-                    st.success(f"Scenario saved: {clean_name}")
+                    st.success(f"Project saved: {clean_name}")
                 except OSError as exc:
-                    st.error(f"Could not save scenario on this app instance: {exc}")
+                    st.error(f"Could not save project on this app instance: {exc}")
 
         annual_rent = area * rent * 12
         gross_profit = annual_sales * gross_margin / 100
