@@ -18,7 +18,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.4"
+BUILD_VERSION = "2026-10-04-v9.5"
 
 
 BASE_ECON_STATE = {
@@ -185,6 +185,175 @@ def fetch_access_context(lat, lon, radius=1500):
     return list(unique.values())
 
 
+def get_secret(name):
+    """Return an optional Streamlit secret without failing when secrets are not configured."""
+    try:
+        value = st.secrets.get(name)
+        return str(value).strip() if value else None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
+def fetch_google_retail(lat, lon, radius=3000, api_key=None):
+    """Fallback retail POIs from Google Places Nearby Search (New)."""
+    if not api_key:
+        raise RuntimeError("GOOGLE_MAPS_API_KEY is not configured")
+
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    body = json.dumps(
+        {
+            "includedTypes": [
+                "toy_store",
+                "department_store",
+                "shopping_mall",
+                "supermarket",
+                "furniture_store",
+                "home_goods_store",
+                "gift_shop",
+            ],
+            "maxResultCount": 20,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": lat, "longitude": lon},
+                    "radius": float(min(radius, 50000)),
+                }
+            },
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": "places.displayName,places.location,places.primaryType,places.types",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=25) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    type_map = {
+        "toy_store": "toys",
+        "department_store": "department_store",
+        "shopping_mall": "mall",
+        "supermarket": "supermarket",
+        "furniture_store": "furniture",
+        "home_goods_store": "houseware",
+        "gift_shop": "gift",
+    }
+    rows = []
+    for place in payload.get("places", []):
+        primary = place.get("primaryType")
+        mapped = type_map.get(primary)
+        if not mapped:
+            for candidate in place.get("types", []):
+                if candidate in type_map:
+                    mapped = type_map[candidate]
+                    break
+        location = place.get("location", {})
+        if not mapped or location.get("latitude") is None or location.get("longitude") is None:
+            continue
+        rows.append(
+            {
+                "name": (place.get("displayName") or {}).get("text") or "Unnamed",
+                "shop": mapped if mapped != "mall" else "mall",
+                "amenity": None,
+                "lat": float(location["latitude"]),
+                "lon": float(location["longitude"]),
+            }
+        )
+    return rows
+
+
+@st.cache_data(ttl=3600)
+def fetch_here_retail(lat, lon, radius=3000, api_key=None):
+    """Second fallback retail POIs from HERE Geocoding & Search Discover."""
+    if not api_key:
+        raise RuntimeError("HERE_API_KEY is not configured")
+
+    queries = [
+        ("toy store", "toys"),
+        ("variety store", "variety_store"),
+        ("department store", "department_store"),
+        ("supermarket", "supermarket"),
+        ("furniture store", "furniture"),
+        ("home goods", "houseware"),
+        ("gift shop", "gift"),
+        ("stationery", "stationery"),
+        ("shopping mall", "mall"),
+    ]
+    rows = []
+    for query, shop_type in queries:
+        params = urllib.parse.urlencode(
+            {
+                "q": query,
+                "in": f"circle:{lat},{lon};r={int(radius)}",
+                "limit": 20,
+                "apiKey": api_key,
+            }
+        )
+        req = urllib.request.Request(
+            f"https://discover.search.hereapi.com/v1/discover?{params}",
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        for item in payload.get("items", []):
+            position = item.get("position") or {}
+            if position.get("lat") is None or position.get("lng") is None:
+                continue
+            rows.append(
+                {
+                    "name": item.get("title") or "Unnamed",
+                    "shop": shop_type,
+                    "amenity": None,
+                    "lat": float(position["lat"]),
+                    "lon": float(position["lng"]),
+                }
+            )
+
+    unique = {}
+    for row in rows:
+        key = (
+            (row.get("name") or "").strip().lower(),
+            row.get("shop") or "",
+            round(row["lat"], 4),
+            round(row["lon"], 4),
+        )
+        unique[key] = row
+    return list(unique.values())
+
+
+def fetch_retail_with_fallback(lat, lon, radius=3000):
+    """Try independent providers in order; return real data only, never fabricated values."""
+    diagnostics = []
+    providers = [
+        ("OpenStreetMap / Overpass", lambda: fetch_nearby_retail(lat, lon, radius)),
+        (
+            "Google Places",
+            lambda: fetch_google_retail(
+                lat, lon, radius, api_key=get_secret("GOOGLE_MAPS_API_KEY")
+            ),
+        ),
+        (
+            "HERE Discover",
+            lambda: fetch_here_retail(lat, lon, radius, api_key=get_secret("HERE_API_KEY")),
+        ),
+    ]
+    for provider_name, loader in providers:
+        try:
+            rows = loader()
+            if rows:
+                return rows, provider_name, diagnostics
+            diagnostics.append(f"{provider_name}: returned no matching POIs")
+        except Exception as exc:
+            diagnostics.append(f"{provider_name}: {exc}")
+    raise RuntimeError("All retail providers failed. " + " | ".join(diagnostics))
+
+
 def circle_polygon(lat, lon, radius_km, points=48):
     coords = []
     lat_scale = 110.574
@@ -327,11 +496,16 @@ if analyze:
                     st.error("Location not found. Try a more complete address.")
                 else:
                     try:
-                        retail = fetch_nearby_retail(geo["lat"], geo["lon"])
+                        retail, retail_source, retail_diagnostics = fetch_retail_with_fallback(
+                            geo["lat"], geo["lon"]
+                        )
                         retail_error = None
                         st.session_state["last_good_retail"] = retail
+                        st.session_state["last_good_retail_source"] = retail_source
                     except Exception as exc:
                         retail = st.session_state.get("last_good_retail", [])
+                        retail_source = st.session_state.get("last_good_retail_source", "Cached previous live result") if retail else None
+                        retail_diagnostics = [str(exc)]
                         retail_error = str(exc) if not retail else None
 
                     access = []
@@ -363,6 +537,8 @@ if analyze:
                         "query": location.strip(),
                         "geo": geo,
                         "retail": retail,
+                        "retail_source": retail_source,
+                        "retail_diagnostics": retail_diagnostics,
                         "retail_error": retail_error,
                         "population": population,
                         "population_errors": population_errors,
@@ -377,6 +553,7 @@ analysis = st.session_state.get("analysis")
 if analysis:
     geo = analysis["geo"]
     retail = analysis["retail"]
+    retail_source = analysis.get("retail_source") or "Unknown"
     population = analysis.get("population", {})
     access = analysis.get("access", [])
 
@@ -393,7 +570,7 @@ if analysis:
 
     st.caption(
         f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
-        f"Mapped POIs: {max(len(map_points) - 1, 0)}"
+        f"Mapped POIs: {max(len(map_points) - 1, 0)} · Retail source: {retail_source}"
     )
 
     direct_competitor_types = {
@@ -528,13 +705,14 @@ if analysis:
             "The map loaded, but the public OpenStreetMap retail layer is temporarily unavailable."
         )
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         [
             "Executive summary",
             "Catchment & demand",
             "Traffic & access",
             "Competition",
             "Commercial & economics",
+            "Methodology",
         ]
     )
 
@@ -558,7 +736,7 @@ if analysis:
         coverage = pd.DataFrame(
             [
                 ["Location / map", "Live", "OpenStreetMap geocoding"],
-                ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", "OpenStreetMap POIs"],
+                ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", retail_source],
                 ["Catchment population", "Live proxy" if population_complete else "Needs retry", "WorldPop 2025 + provisional 5/10/15-minute proxy"],
                 ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                 ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
@@ -684,6 +862,7 @@ if analysis:
             "Direct competitors = named toy, variety and department-store POIs. "
             "Related home/gift/stationery retail is tracked separately."
         )
+        st.caption(f"Retail provider used for this run: {retail_source}")
 
         q1, q2, q3, q4, q5 = st.columns(5)
         q1.metric("Competition pressure proxy", f"{competition_pressure}/100" if retail_data_ok else "No data")
@@ -1003,6 +1182,80 @@ if analysis:
                 "Enter at least store area, rent, annual sales and gross margin "
                 "to activate the scenario analysis."
             )
+
+    with tab6:
+        st.markdown("### Methodology & data dictionary")
+        st.caption(f"Build: {BUILD_VERSION}")
+        st.write(
+            "This page explains what each input means, the unit to enter, the source, and how the app calculates the outputs. "
+            "The objective is that another country team can use the model without guessing definitions."
+        )
+
+        st.markdown("#### Commercial & economics inputs")
+        methodology_rows = [
+            ["Store area, m²", "Trading / net sales area used for store productivity and rent calculations. Use the same area definition consistently across countries.", "m²", "Lease plan / technical drawings", "Input"],
+            ["Rent", "Monthly base rent per m². Enter on the same VAT basis as the rest of the model; recommended comparison basis is excluding recoverable VAT.", "currency / m² / month", "LOI / lease offer", "Input"],
+            ["CAPEX", "One-time investment required to open the store: fit-out, MEP, furniture/fixtures, IT/security, signage and other opening investment included in the approved project scope.", "currency", "Project budget", "Input"],
+            ["Expected annual sales", "Expected gross merchandise sales for a full 12-month stabilized year. For cross-country comparison, use a consistent VAT convention; recommended management view is net sales excluding VAT.", "currency / year", "Jumbo benchmark + local forecast", "Input"],
+            ["Gross margin", "Sales minus cost of goods sold, divided by sales.", "% of sales", "Commercial plan / historical stores", "Input"],
+            ["Annual payroll", "Total annual employer cost for the store team, including salaries/wages, employer taxes and regular benefits/bonuses included in local payroll cost.", "currency / year", "HR staffing model", "Input"],
+            ["Utilities & maintenance", "Electricity, heating/cooling, water and routine facility/technical maintenance attributable to the store.", "currency / year", "FM budget / benchmarks", "Input"],
+            ["Local logistics", "Recurring local inbound / last-mile / store delivery and handling cost included in the site P&L.", "currency / year", "Supply-chain budget", "Input"],
+            ["Other annual OPEX", "Recurring store operating costs not already captured above, e.g. security, cleaning, consumables, local services and other site-specific costs.", "currency / year", "Operating budget", "Input"],
+        ]
+        st.dataframe(
+            pd.DataFrame(methodology_rows, columns=["Field", "Definition", "Unit", "Typical source", "Type"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("#### Calculated commercial outputs")
+        formula_rows = [
+            ["Annual rent", "Store area × monthly rent × 12"],
+            ["Gross profit", "Expected annual sales × gross margin %"],
+            ["Total fixed OPEX", "Annual rent + payroll + utilities & maintenance + local logistics + other OPEX"],
+            ["Estimated EBITDA", "Gross profit − total fixed OPEX"],
+            ["EBITDA margin", "Estimated EBITDA ÷ annual sales"],
+            ["Sales density", "Annual sales ÷ store area"],
+            ["Occupancy cost", "Annual rent ÷ annual sales"],
+            ["CAPEX payback", "CAPEX ÷ EBITDA, only when EBITDA is positive"],
+        ]
+        st.dataframe(
+            pd.DataFrame(formula_rows, columns=["Output", "Formula"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("#### Location-data logic")
+        st.write(
+            "**Competition:** the app first requests OpenStreetMap/Overpass. If that provider is unavailable, it can automatically "
+            "fall back to Google Places and then HERE Discover when their API keys are configured. No synthetic competitor counts are inserted."
+        )
+        st.write(
+            "**Traffic & access:** the current score uses mapped major roads, public transport and parking as an infrastructure proxy. "
+            "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
+        )
+        st.write(
+            "**Catchment:** current 5/10/15-minute values use WorldPop population over provisional ~2/4/6 km circular proxies. "
+            "They are not yet true road-network drive-time isochrones."
+        )
+
+        provider_rows = [
+            ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active", "No API key"],
+            ["WorldPop", "Population", "Active when service responds", "No key in current implementation"],
+            ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
+            ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
+            ["Measured mobility / traffic provider", "Car counts / footfall", "Not connected", "Future provider"],
+        ]
+        st.dataframe(
+            pd.DataFrame(provider_rows, columns=["Provider", "Role", "Status", "Configuration"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.info(
+            "Recommended finance convention for cross-country comparison: use net sales and costs excluding recoverable VAT, "
+            "then apply the same convention to every store benchmark. If a country team uses a different convention, document it in the scenario."
+        )
 
 st.divider()
 st.caption(
