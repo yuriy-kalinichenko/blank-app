@@ -4,7 +4,7 @@ Streamlit application for screening, comparing and managing potential Jumbo reta
 
 ## Current build
 
-**2026-10-04-v11.1**
+**2026-10-04-v11.2**
 
 ## What the app does
 
@@ -13,6 +13,7 @@ Streamlit application for screening, comparing and managing potential Jumbo reta
 - falls back to clearly labelled distance proxies when the routing provider is unavailable;
 - analyzes nearby retail, competition, parking and access context from OpenStreetMap;
 - calculates WorldPop population directly inside the displayed 15/30/40-minute catchment zones;
+- calculates the population age 0-18 and its share inside each catchment as a children-demand indicator;
 - uses multiple provider fallbacks for better resilience;
 - manages complete site projects through a compact Project Workspace;
 - tracks project lifecycle stage from screening through approval/rejection;
@@ -65,3 +66,10 @@ The repository includes:
 ## Sharing
 
 For end users, share the deployed Streamlit application URL rather than the GitHub repository URL.
+
+
+## Children-demand layer
+
+WorldPop age/sex statistics are queried for ages 0-18 inside each displayed 15/30/40-minute catchment. The app shows both the count and share of children in the total catchment population.
+
+This is a demographic demand indicator only. It is not presented as a count of families or households.
