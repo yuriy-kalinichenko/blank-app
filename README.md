@@ -1,42 +1,69 @@
 # Jumbo Location Analyzer
 
-Streamlit application for screening, comparing and managing potential Jumbo retail locations.
+Retail location intelligence, site-selection and investment-screening application for Jumbo expansion projects.
 
-## Current build
+## Release candidate
 
-**2026-10-04-v11.2**
+**2026-10-04-v1.0-rc1**
 
-## What the app does
+This release candidate freezes the core product workflow. New large feature layers should be added only after the release-candidate workflow passes real-site validation.
 
-- geocodes candidate locations;
-- calculates real **15 / 30 / 40 minute car drive-time isochrones** with Valhalla routing;
-- falls back to clearly labelled distance proxies when the routing provider is unavailable;
-- analyzes nearby retail, competition, parking and access context from OpenStreetMap;
-- calculates WorldPop population directly inside the displayed 15/30/40-minute catchment zones;
-- calculates the population age 0-18 and its share inside each catchment as a children-demand indicator;
-- uses multiple provider fallbacks for better resilience;
-- manages complete site projects through a compact Project Workspace;
-- tracks project lifecycle stage from screening through approval/rejection;
-- compares saved projects on commercial assumptions such as sales, EBITDA margin and payback;
-- supports commercial scenario analysis and methodology diagnostics.
-
-## Product workflow
+## Core workflow
 
 1. Create or select a project.
-2. Enter the candidate site and run live location analysis.
-3. Review the 15/30/40-minute drive-time catchments.
-4. Review demand, access and competitive context.
-5. Enter commercial assumptions.
-6. Save the project and compare it with other candidate sites.
-7. Move the project through the appropriate decision stage.
+2. Enter a candidate site and run live location analysis.
+3. Review real 15/30/40-minute drive-time catchments.
+4. Review total population and children 0-18 inside the displayed catchments.
+5. Review access, nearby retail and competitive context.
+6. Enter commercial assumptions and review economics.
+7. Save the project and compare it with other candidate sites.
+8. Move the project through Screening, Due diligence, Negotiation, Approved, On hold or Rejected.
 
-## Drive-time methodology
+## Project Library
 
-The live drive-time layer uses the Valhalla road-network isochrone service with OpenStreetMap routing data. The public FOSSGIS Valhalla service is used under fair-use and the app sends an identifying client header.
+The Project Workspace supports New, Load and Save as the main workflow.
 
-If the live routing service is unavailable, the app shows an explicit fallback proxy instead of presenting a circular radius as a real drive-time zone.
+For durable portability, the **Project library · backup & transfer** section can:
 
-WorldPop population is calculated inside the same 15/30/40-minute polygons shown in the app. When live routing is available, those are real road-network isochrones; when routing falls back, the population result is explicitly labelled as belonging to proxy zones.
+- export all projects to a JSON backup;
+- import that backup on another computer or after an app restart;
+- merge imported projects into the current library;
+- delete a selected project.
+
+The local `saved_scenarios.json` file remains a convenience cache for the current app instance. The exported JSON library is the portable backup and recovery format and avoids relying on ephemeral cloud filesystem persistence.
+
+## Location intelligence
+
+- OpenStreetMap geocoding for candidate sites.
+- Valhalla/OpenStreetMap road-network isochrones for **15 / 30 / 40 minute** car catchments.
+- Clearly labelled 6/12/16 km fallback proxies if routing is unavailable.
+- WorldPop 2025 total population inside the displayed catchment polygons.
+- WorldPop age/sex population age 0-18 inside the same catchments.
+- OpenStreetMap retail, competition, parking, roads and public-transport context.
+- Provider fallbacks and diagnostics instead of fabricated values.
+
+## Commercial screening
+
+The economics module uses explicit user assumptions for area, rent, CAPEX, sales, gross margin, payroll, utilities, logistics and other OPEX. It calculates annual rent, gross profit, EBITDA, sales density, occupancy cost, EBITDA margin and payback.
+
+Saved-project comparison uses only the assumptions stored in each project. The app does not create a hidden overall ranking.
+
+## Methodology safeguards
+
+- Real routing polygons are distinguished from fallback proxies.
+- Population and children-demand figures use the same displayed catchment geometry.
+- Missing provider data is shown as unavailable or needing retry rather than invented.
+- Children 0-18 is a demographic demand indicator, not a family or household count.
+- Commercial results are assumption-driven and are not presented as market forecasts.
+
+## Quality gates
+
+Every pull request and push to `main` checks:
+
+- dependency-lock consistency with `uv lock --check`;
+- Python compilation;
+- Streamlit smoke-test startup;
+- presence of the core Project Workspace workflow.
 
 ## Run locally
 
@@ -48,28 +75,23 @@ uv sync
 uv run streamlit run streamlit_app.py
 ```
 
-## Quality checks
-
-The repository includes:
-- a Streamlit smoke test;
-- Python compile validation;
-- `uv.lock` consistency validation;
-- GitHub Actions checks on pull requests and pushes to `main`.
-
 ## Deployment
 
-1. Deploy this GitHub repository to Streamlit.
-2. Set the entrypoint to `streamlit_app.py`.
-3. Keep credentials and API secrets in deployment secrets/environment variables rather than source control.
-4. Validate live geocoding, drive-time routing, retail/access providers, project save/load, comparison and economics before sharing the public app link.
+1. Deploy the GitHub repository to Streamlit.
+2. Use `streamlit_app.py` as the entrypoint.
+3. Keep future credentials/API secrets in deployment secrets or environment variables.
+4. Run the release checklist on multiple real candidate sites before external presentation.
+5. Export the Project Library as a backup after important project updates.
 
-## Sharing
+## v1.0 release checklist
 
-For end users, share the deployed Streamlit application URL rather than the GitHub repository URL.
+Before calling the release final:
 
-
-## Children-demand layer
-
-WorldPop age/sex statistics are queried for ages 0-18 inside each displayed 15/30/40-minute catchment. The app shows both the count and share of children in the total catchment population.
-
-This is a demographic demand indicator only. It is not presented as a count of families or households.
+- CI on the release candidate is green.
+- New / Load / Save works for multiple projects.
+- Project Library export/import round-trips successfully.
+- At least three real candidate sites complete analysis without a crash.
+- Live-routing and fallback states are both clearly labelled.
+- Catchment population and children-demand values are shown for available zones.
+- Economics and saved-project comparison remain consistent after save/load.
+- The deployed Streamlit app opens cleanly from a fresh browser session.
