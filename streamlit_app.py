@@ -2157,41 +2157,10 @@ if analysis:
         else:
             st.caption("Active project: unsaved working copy")
 
-        with st.expander("Upload commercial data", expanded=False):
-            st.caption(
-                "Upload CSV or XLSX. The app recognizes common labels for area, rent, CAPEX, "
-                "sales, margin and annual operating costs."
-            )
-            commercial_upload = st.file_uploader(
-                "Commercial file",
-                type=["csv", "xlsx"],
-                accept_multiple_files=False,
-                key="commercial_data_upload",
-            )
-            apply_commercial_upload = st.button(
-                "Apply commercial data",
-                use_container_width=True,
-                key="commercial_data_apply",
-                disabled=commercial_upload is None,
-            )
-            if apply_commercial_upload and commercial_upload is not None:
-                try:
-                    imported_commercial = parse_commercial_upload(commercial_upload)
-                    imported_labels = []
-                    for field, value in imported_commercial.items():
-                        state_key = PROJECT_FIELD_MAP[field]
-                        st.session_state[state_key] = value
-                        imported_labels.append(field.replace("_", " "))
-                    st.session_state["_commercial_upload_flash"] = (
-                        "Commercial data applied: " + ", ".join(imported_labels)
-                    )
-                    st.rerun()
-                except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
-                    st.error(f"Could not read commercial data: {exc}")
-
-        commercial_upload_flash = st.session_state.pop("_commercial_upload_flash", None)
-        if commercial_upload_flash:
-            st.success(commercial_upload_flash)
+        st.caption(
+            "Enter the commercial assumptions directly below. Results recalculate automatically, "
+            "and Save to project stores the values inside the current project."
+        )
 
         currency = st.selectbox(
             "Currency",
@@ -2270,6 +2239,24 @@ if analysis:
             step=5000.0,
             key="econ_other_opex",
         )
+
+        save_commercial_clicked = st.button(
+            "Save to project",
+            type="primary",
+            use_container_width=True,
+            key="commercial_save_to_project",
+            disabled=not bool(active_project),
+        )
+        if save_commercial_clicked:
+            saved_projects[active_project] = capture_project_from_state(active_project)
+            st.session_state["project_library"] = saved_projects
+            try:
+                persist_saved_scenarios(saved_projects)
+                st.success(f"Commercial data saved to {active_project}.")
+            except OSError:
+                st.warning(
+                    "Commercial data is saved for this session, but local server storage is unavailable."
+                )
 
         annual_rent = area * rent * 12
         gross_profit = annual_sales * gross_margin / 100
@@ -2380,6 +2367,42 @@ if analysis:
             "This page explains what each input means, the unit to enter, the source, and how the app calculates the outputs. "
             "The objective is that another country team can use the model without guessing definitions."
         )
+
+        with st.expander("Advanced · upload commercial file", expanded=False):
+            st.caption(
+                "Optional only. Use this when a landlord or colleague sends a ready CSV/XLSX file. "
+                "For normal work, enter the figures directly above."
+            )
+            commercial_upload = st.file_uploader(
+                "Commercial file",
+                type=["csv", "xlsx"],
+                accept_multiple_files=False,
+                key="commercial_data_upload",
+            )
+            apply_commercial_upload = st.button(
+                "Apply commercial data",
+                use_container_width=True,
+                key="commercial_data_apply",
+                disabled=commercial_upload is None,
+            )
+            if apply_commercial_upload and commercial_upload is not None:
+                try:
+                    imported_commercial = parse_commercial_upload(commercial_upload)
+                    imported_labels = []
+                    for field, value in imported_commercial.items():
+                        state_key = PROJECT_FIELD_MAP[field]
+                        st.session_state[state_key] = value
+                        imported_labels.append(field.replace("_", " "))
+                    st.session_state["_commercial_upload_flash"] = (
+                        "Commercial data applied: " + ", ".join(imported_labels)
+                    )
+                    st.rerun()
+                except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+                    st.error(f"Could not read commercial data: {exc}")
+
+        commercial_upload_flash = st.session_state.pop("_commercial_upload_flash", None)
+        if commercial_upload_flash:
+            st.success(commercial_upload_flash)
 
         st.markdown("#### Commercial & economics inputs")
         methodology_rows = [
