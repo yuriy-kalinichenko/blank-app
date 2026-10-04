@@ -1023,6 +1023,7 @@ st.caption(
 )
 
 saved_projects = st.session_state["project_library"]
+PROJECT_SELECTOR_PLACEHOLDER = "— Select project —"
 
 pending_load = st.session_state.pop("_pending_project_load", None)
 if pending_load and pending_load in saved_projects:
@@ -1031,30 +1032,48 @@ if pending_load and pending_load in saved_projects:
 
 if st.session_state.pop("_pending_new_project", False):
     reset_project_state()
-    st.session_state["_pending_project_select"] = "— Select project —"
+    st.session_state["_pending_project_select"] = PROJECT_SELECTOR_PLACEHOLDER
 
 pending_select = st.session_state.pop("_pending_project_select", None)
 if pending_select is not None:
-    available_options = ["— Select project —"] + sorted(saved_projects.keys())
+    available_options = [PROJECT_SELECTOR_PLACEHOLDER] + sorted(saved_projects.keys())
     if pending_select in available_options:
         st.session_state["project_selector"] = pending_select
 
+project_flash = st.session_state.pop("_project_flash", None)
+
+def queue_selected_project_load():
+    """Selecting a project should load it automatically on the next rerun."""
+    selected = st.session_state.get("project_selector")
+    if selected and selected != PROJECT_SELECTOR_PLACEHOLDER:
+        st.session_state["_pending_project_load"] = selected
+
+
 with st.container(border=True):
     st.markdown("### Project workspace")
-    st.caption(
-        "One place to create, select, load and save the complete location project."
-    )
+    st.caption("Select a project and it opens automatically. Create, save, rename or delete from one place.")
+
+    if project_flash:
+        st.success(project_flash)
+
+    current_project = st.session_state.get("active_project_name")
+    current_stage = st.session_state.get("project_stage", "Screening")
+    if current_project:
+        st.caption(f"Current project: **{current_project}** · {current_stage}")
+    else:
+        st.caption("Current project: **New unsaved project**")
 
     project_left, project_middle, project_right = st.columns([1.25, 1, 0.85])
     selected_project = project_left.selectbox(
-        "Saved project",
-        ["— Select project —"] + sorted(saved_projects.keys()),
+        "Saved projects",
+        [PROJECT_SELECTOR_PLACEHOLDER] + sorted(saved_projects.keys()),
         key="project_selector",
+        on_change=queue_selected_project_load,
     )
     project_name = project_middle.text_input(
         "Project name",
         key="project_name_input",
-        placeholder="Example: Kyiv / Karavan - Base",
+        placeholder="Example: Respublika Park",
     )
     project_right.selectbox(
         "Stage",
@@ -1062,66 +1081,150 @@ with st.container(border=True):
         key="project_stage",
     )
 
-    action_new, action_load, action_save = st.columns(3)
+    # If a stale session already had a selected project when this UI version loaded,
+    # make sure the project is loaded even without a fresh selectbox change event.
+    if (
+        selected_project != PROJECT_SELECTOR_PLACEHOLDER
+        and st.session_state.get("active_project_name") != selected_project
+        and st.session_state.get("_pending_project_load") != selected_project
+    ):
+        st.session_state["_pending_project_load"] = selected_project
+        st.rerun()
+
+    is_new_project = selected_project == PROJECT_SELECTOR_PLACEHOLDER
+    action_new, action_save, action_rename, action_delete = st.columns(4)
+
     new_project_clicked = action_new.button(
-        "＋ New",
+        "＋ New project",
         use_container_width=True,
-        key="project_new_v101",
-    )
-    load_project_clicked = action_load.button(
-        "↧ Load",
-        type="primary",
-        use_container_width=True,
-        key="project_load_v101",
+        key="project_new_v102",
     )
     save_project_clicked = action_save.button(
-        "Save",
+        "Create project" if is_new_project else "Save changes",
+        type="primary",
         use_container_width=True,
-        key="project_save_v101",
+        key="project_save_v102",
+    )
+    rename_project_clicked = action_rename.button(
+        "Rename",
+        use_container_width=True,
+        key="project_rename_v102",
+        disabled=is_new_project,
+    )
+    delete_project_clicked = action_delete.button(
+        "Delete",
+        use_container_width=True,
+        key="project_delete_v102",
+        disabled=is_new_project,
     )
 
     if new_project_clicked:
         st.session_state["_pending_new_project"] = True
         st.rerun()
 
-    if load_project_clicked:
-        if selected_project == "— Select project —":
-            st.warning("Select a saved project first.")
-        else:
-            st.session_state["_pending_project_load"] = selected_project
-            st.rerun()
-
     if save_project_clicked:
-        clean_name = project_name.strip()
-        if not clean_name:
-            st.warning("Enter a project name before saving.")
-        elif not (st.session_state.get("location_query") or "").strip():
-            st.warning("Enter a location before saving the project.")
+        clean_input_name = project_name.strip()
+
+        if is_new_project:
+            target_name = clean_input_name
         else:
-            saved_projects[clean_name] = capture_project_from_state(clean_name)
+            target_name = selected_project
+            if clean_input_name and clean_input_name != selected_project:
+                st.warning("To change the project name, use Rename.")
+                target_name = None
+
+        if target_name is not None:
+            if not target_name:
+                st.warning("Enter a project name before creating it.")
+            elif not (st.session_state.get("location_query") or "").strip():
+                st.warning("Enter a location before saving the project.")
+            else:
+                saved_projects[target_name] = capture_project_from_state(target_name)
+                st.session_state["project_library"] = saved_projects
+                persist_warning = None
+                try:
+                    persist_saved_scenarios(saved_projects)
+                except OSError as exc:
+                    persist_warning = str(exc)
+
+                st.session_state["active_project_name"] = target_name
+                st.session_state["econ_scenario_name"] = target_name
+                st.session_state["_pending_project_select"] = target_name
+                if persist_warning:
+                    st.session_state["_project_flash"] = (
+                        f"{target_name} is saved for this session. "
+                        "Server storage is unavailable; use Advanced · import / export for a durable backup."
+                    )
+                else:
+                    st.session_state["_project_flash"] = (
+                        f"Project created: {target_name}"
+                        if is_new_project
+                        else f"Changes saved: {target_name}"
+                    )
+                st.rerun()
+
+    if rename_project_clicked and not is_new_project:
+        clean_name = project_name.strip()
+        old_name = selected_project
+        if not clean_name:
+            st.warning("Enter the new project name first.")
+        elif clean_name == old_name:
+            st.info("Enter a different name to rename the project.")
+        elif clean_name in saved_projects:
+            st.warning(f"A project named {clean_name} already exists.")
+        else:
+            renamed_project = saved_projects.pop(old_name)
+            renamed_project["updated_at"] = datetime.now(timezone.utc).isoformat()
+            saved_projects[clean_name] = renamed_project
             st.session_state["project_library"] = saved_projects
-            persist_warning = None
             try:
                 persist_saved_scenarios(saved_projects)
-            except OSError as exc:
-                persist_warning = str(exc)
-
+            except OSError:
+                pass
             st.session_state["active_project_name"] = clean_name
             st.session_state["econ_scenario_name"] = clean_name
             st.session_state["_pending_project_select"] = clean_name
-            if persist_warning:
-                st.warning(
-                    "Project is saved for this session, but local server storage is unavailable. "
-                    "Use Export library below for a durable backup."
-                )
-            else:
-                st.success(f"Project saved: {clean_name}")
+            st.session_state["_project_flash"] = f"Project renamed: {old_name} → {clean_name}"
             st.rerun()
 
-    with st.expander("Project library · backup & transfer", expanded=False):
+    if delete_project_clicked and not is_new_project:
+        st.session_state["_confirm_delete_project"] = selected_project
+        st.rerun()
+
+    confirm_delete = st.session_state.get("_confirm_delete_project")
+    if confirm_delete:
+        st.warning(f"Delete **{confirm_delete}**? This cannot be undone.")
+        confirm_col, cancel_col, _ = st.columns([1, 1, 2])
+        if confirm_col.button(
+            "Yes, delete",
+            type="primary",
+            use_container_width=True,
+            key="project_delete_confirm_v102",
+        ):
+            saved_projects.pop(confirm_delete, None)
+            st.session_state["project_library"] = saved_projects
+            try:
+                persist_saved_scenarios(saved_projects)
+            except OSError:
+                pass
+            st.session_state.pop("_confirm_delete_project", None)
+            if st.session_state.get("active_project_name") == confirm_delete:
+                reset_project_state()
+            st.session_state["_pending_project_select"] = PROJECT_SELECTOR_PLACEHOLDER
+            st.session_state["_project_flash"] = f"Deleted project: {confirm_delete}"
+            st.rerun()
+
+        if cancel_col.button(
+            "Cancel",
+            use_container_width=True,
+            key="project_delete_cancel_v102",
+        ):
+            st.session_state.pop("_confirm_delete_project", None)
+            st.rerun()
+
+    with st.expander("Advanced · import / export", expanded=False):
         st.caption(
-            "Export keeps a durable copy of all projects. Import merges a saved library "
-            "into the current workspace and replaces projects with the same name."
+            "Use these tools only for backup or moving projects between environments."
         )
 
         backup_col, import_col = st.columns(2)
@@ -1142,18 +1245,11 @@ with st.container(border=True):
             label_visibility="collapsed",
         )
 
-        manage_left, manage_right = st.columns(2)
-        import_clicked = manage_left.button(
+        import_clicked = st.button(
             "Import selected file",
             use_container_width=True,
             key="project_import_library_button",
             disabled=uploaded_library is None,
-        )
-        delete_clicked = manage_right.button(
-            "Delete selected project",
-            use_container_width=True,
-            key="project_delete_selected",
-            disabled=selected_project == "— Select project —",
         )
 
         if import_clicked and uploaded_library is not None:
@@ -1168,7 +1264,7 @@ with st.container(border=True):
                     persist_saved_scenarios(saved_projects)
                 except OSError:
                     pass
-                st.success(
+                st.session_state["_project_flash"] = (
                     f"Imported {len(imported_projects)} project(s). "
                     "Existing projects with the same name were updated."
                 )
@@ -1176,24 +1272,7 @@ with st.container(border=True):
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
                 st.error(f"Could not import project library: {exc}")
 
-        if delete_clicked and selected_project != "— Select project —":
-            deleted_name = selected_project
-            saved_projects.pop(deleted_name, None)
-            st.session_state["project_library"] = saved_projects
-            try:
-                persist_saved_scenarios(saved_projects)
-            except OSError:
-                pass
-            if st.session_state.get("active_project_name") == deleted_name:
-                st.session_state["active_project_name"] = None
-            st.session_state["_pending_project_select"] = "— Select project —"
-            st.success(f"Deleted project: {deleted_name}")
-            st.rerun()
-
-        st.caption(
-            f"Projects in library: {len(saved_projects)} · "
-            "For cloud use, keep an exported JSON backup as the portable source of truth."
-        )
+        st.caption(f"Projects in library: {len(saved_projects)}")
 
     location_ready = bool((st.session_state.get("location_query") or "").strip())
     current_analysis = st.session_state.get("analysis")
