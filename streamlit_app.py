@@ -1,9 +1,14 @@
+import csv
+import io
 import json
 import math
+import re
 import time
 from datetime import datetime, timezone
 import urllib.parse
 import urllib.request
+import zipfile
+import xml.etree.ElementTree as ET
 
 import pandas as pd
 import pydeck as pdk
@@ -902,6 +907,194 @@ PROJECT_FIELD_MAP = {
     "logistics": "econ_logistics",
     "other_opex": "econ_other_opex",
 }
+
+
+COMMERCIAL_FIELD_ALIASES = {
+    "currency": ["currency", "curr", "валюта"],
+    "area": ["store area", "area", "sqm", "sq m", "m2", "m²", "площадь", "площа"],
+    "rent": ["rent", "base rent", "monthly rent", "rent per sqm", "аренда", "оренда"],
+    "capex": ["capex", "investment", "fit out investment", "инвестиции", "інвестиції"],
+    "annual_sales": ["annual sales", "expected annual sales", "sales", "revenue", "продажи", "продажі"],
+    "gross_margin": ["gross margin", "margin", "gm", "маржа"],
+    "payroll": ["annual payroll", "payroll", "staff cost", "personnel cost", "фоп персонала", "зарплата"],
+    "utilities": ["utilities", "utilities maintenance", "maintenance", "коммунальные", "комунальні"],
+    "logistics": ["local logistics", "logistics", "логистика", "логістика"],
+    "other_opex": ["other annual opex", "other opex", "opex", "прочий opex", "інший opex"],
+}
+
+
+def _normalize_commercial_label(value):
+    text = str(value or "").strip().lower()
+    text = text.replace("²", "2")
+    text = re.sub(r"[^a-zа-яіїє0-9]+", " ", text, flags=re.IGNORECASE)
+    return " ".join(text.split())
+
+
+def _match_commercial_field(label):
+    normalized = _normalize_commercial_label(label)
+    if not normalized:
+        return None
+    for field, aliases in COMMERCIAL_FIELD_ALIASES.items():
+        normalized_aliases = [_normalize_commercial_label(alias) for alias in aliases]
+        if normalized in normalized_aliases:
+            return field
+    for field, aliases in COMMERCIAL_FIELD_ALIASES.items():
+        for alias in aliases:
+            alias_norm = _normalize_commercial_label(alias)
+            if alias_norm and alias_norm in normalized:
+                return field
+    return None
+
+
+def _parse_commercial_number(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    text = str(value).strip().replace("\u00a0", " ").replace(" ", "")
+    text = re.sub(r"[€$₴%]", "", text)
+    if not text:
+        return None
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        tail = text.rsplit(",", 1)[-1]
+        text = text.replace(",", ".") if len(tail) <= 2 else text.replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _xlsx_first_sheet_rows(file_bytes):
+    """Read values from the first XLSX worksheet using only the Python standard library."""
+    with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+        shared_strings = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+            for item in root.findall("m:si", ns):
+                shared_strings.append("".join(node.text or "" for node in item.iter() if node.tag.endswith("}t")))
+
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        main_ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+        rel_ns = {"r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+        package_ns = {"p": "http://schemas.openxmlformats.org/package/2006/relationships"}
+
+        first_sheet = workbook.find("m:sheets/m:sheet", main_ns)
+        if first_sheet is None:
+            return []
+        rel_id = first_sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        target = None
+        for rel in rels.findall("p:Relationship", package_ns):
+            if rel.attrib.get("Id") == rel_id:
+                target = rel.attrib.get("Target")
+                break
+        if not target:
+            return []
+        sheet_path = target.lstrip("/")
+        if not sheet_path.startswith("xl/"):
+            sheet_path = "xl/" + sheet_path
+
+        sheet = ET.fromstring(archive.read(sheet_path))
+        rows = []
+        for row in sheet.findall(".//m:sheetData/m:row", main_ns):
+            values = []
+            last_col = 0
+            for cell in row.findall("m:c", main_ns):
+                ref = cell.attrib.get("r", "")
+                letters = re.match(r"[A-Z]+", ref)
+                col_index = 0
+                if letters:
+                    for ch in letters.group(0):
+                        col_index = col_index * 26 + (ord(ch) - 64)
+                while last_col + 1 < col_index:
+                    values.append("")
+                    last_col += 1
+
+                cell_type = cell.attrib.get("t")
+                value_node = cell.find("m:v", main_ns)
+                if cell_type == "inlineStr":
+                    text_node = cell.find("m:is/m:t", main_ns)
+                    value = text_node.text if text_node is not None else ""
+                elif value_node is None:
+                    value = ""
+                elif cell_type == "s":
+                    idx = int(value_node.text)
+                    value = shared_strings[idx] if 0 <= idx < len(shared_strings) else ""
+                else:
+                    value = value_node.text or ""
+                values.append(value)
+                last_col = col_index or (last_col + 1)
+            rows.append(values)
+        return rows
+
+
+def _commercial_rows_from_upload(uploaded_file):
+    raw = uploaded_file.getvalue()
+    name = (uploaded_file.name or "").lower()
+    if name.endswith(".csv"):
+        text = raw.decode("utf-8-sig")
+        try:
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+        return list(csv.reader(io.StringIO(text), dialect))
+    if name.endswith(".xlsx"):
+        return _xlsx_first_sheet_rows(raw)
+    raise ValueError("Use a .csv or .xlsx file.")
+
+
+def parse_commercial_upload(uploaded_file):
+    """Map common CSV/XLSX commercial layouts into the app's economics fields."""
+    rows = [
+        [str(value).strip() if value is not None else "" for value in row]
+        for row in _commercial_rows_from_upload(uploaded_file)
+    ]
+    rows = [row for row in rows if any(cell for cell in row)]
+    if not rows:
+        raise ValueError("The uploaded file is empty.")
+
+    parsed = {}
+
+    # Wide layout: header row followed by a values row.
+    if len(rows) >= 2:
+        for idx, header in enumerate(rows[0]):
+            field = _match_commercial_field(header)
+            if field and idx < len(rows[1]) and rows[1][idx] != "":
+                parsed[field] = rows[1][idx]
+
+    # Key/value layout: each row contains a field label and a value.
+    for row in rows:
+        if not row:
+            continue
+        field = _match_commercial_field(row[0])
+        if field:
+            value = next((cell for cell in row[1:] if cell != ""), "")
+            if value != "":
+                parsed[field] = value
+
+    result = {}
+    for field, value in parsed.items():
+        if field == "currency":
+            currency = str(value).strip().upper()
+            if currency in {"EUR", "USD", "UAH"}:
+                result[field] = currency
+        else:
+            number = _parse_commercial_number(value)
+            if number is not None:
+                result[field] = number
+
+    if not result:
+        raise ValueError(
+            "No commercial fields were recognized. Use labels such as Store area, Rent, CAPEX, "
+            "Annual sales, Gross margin, Payroll, Utilities, Logistics or Other OPEX."
+        )
+    return result
 
 
 def apply_project_to_state(project_name, project):
@@ -1963,6 +2156,42 @@ if analysis:
             st.caption(f"Active project: {active_project}")
         else:
             st.caption("Active project: unsaved working copy")
+
+        with st.expander("Upload commercial data", expanded=False):
+            st.caption(
+                "Upload CSV or XLSX. The app recognizes common labels for area, rent, CAPEX, "
+                "sales, margin and annual operating costs."
+            )
+            commercial_upload = st.file_uploader(
+                "Commercial file",
+                type=["csv", "xlsx"],
+                accept_multiple_files=False,
+                key="commercial_data_upload",
+            )
+            apply_commercial_upload = st.button(
+                "Apply commercial data",
+                use_container_width=True,
+                key="commercial_data_apply",
+                disabled=commercial_upload is None,
+            )
+            if apply_commercial_upload and commercial_upload is not None:
+                try:
+                    imported_commercial = parse_commercial_upload(commercial_upload)
+                    imported_labels = []
+                    for field, value in imported_commercial.items():
+                        state_key = PROJECT_FIELD_MAP[field]
+                        st.session_state[state_key] = value
+                        imported_labels.append(field.replace("_", " "))
+                    st.session_state["_commercial_upload_flash"] = (
+                        "Commercial data applied: " + ", ".join(imported_labels)
+                    )
+                    st.rerun()
+                except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+                    st.error(f"Could not read commercial data: {exc}")
+
+        commercial_upload_flash = st.session_state.pop("_commercial_upload_flash", None)
+        if commercial_upload_flash:
+            st.success(commercial_upload_flash)
 
         currency = st.selectbox(
             "Currency",
