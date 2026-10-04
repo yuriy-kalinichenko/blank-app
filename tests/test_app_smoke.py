@@ -16,13 +16,15 @@ def test_app_starts_and_project_workspace_is_present():
     assert "### Project workspace" in markdown_values
 
     button_labels = [button.label for button in at.button]
-    assert "＋ New" in button_labels
-    assert "↧ Load" in button_labels
-    assert "Save" in button_labels
+    assert "＋ New project" in button_labels
+    assert "Create project" in button_labels
+    assert "Rename" in button_labels
+    assert "Delete" in button_labels
+    assert "↧ Load" not in button_labels
     assert "Analyze location" in button_labels
 
     expander_labels = [item.label for item in at.expander]
-    assert "Project library · backup & transfer" in expander_labels
+    assert "Advanced · import / export" in expander_labels
 
     download_labels = [item.label for item in at.download_button]
     assert "Export library" in download_labels
