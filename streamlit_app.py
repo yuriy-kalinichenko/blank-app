@@ -9,7 +9,7 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
-st.set_page_config(page_title="Jumbo Location Analyzer", layout="wide")
+st.set_page_config(page_title="Jumbo Location Analyzer", page_icon="📍", layout="wide")
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URLS = [
@@ -25,7 +25,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v11.2"
+BUILD_VERSION = "2026-10-04-v1.0-rc1"
 
 
 BASE_ECON_STATE = {
@@ -859,10 +859,11 @@ def worldpop_children_geojson(geometry, year=2025, age_range=(0, 18)):
 
 
 SCENARIO_FILE = "saved_scenarios.json"
+PROJECT_LIBRARY_SCHEMA = 1
 
 
-def load_saved_scenarios():
-    default_scenarios = {
+def default_project_library():
+    return {
         "Karavan Mall, Kyiv - Base": {
             "location": "Karavan Mall, Kyiv",
             "currency": "EUR",
@@ -879,13 +880,60 @@ def load_saved_scenarios():
             "schema_version": 2,
         }
     }
+
+
+def validate_project_library(payload):
+    """Validate and normalize an imported project library."""
+    if not isinstance(payload, dict):
+        raise ValueError("Project library must be a JSON object.")
+
+    raw_projects = payload.get("projects") if "projects" in payload else payload
+    if not isinstance(raw_projects, dict):
+        raise ValueError("The JSON file does not contain a valid projects object.")
+
+    normalized = {}
+    for raw_name, raw_project in raw_projects.items():
+        name = str(raw_name).strip()
+        if not name or not isinstance(raw_project, dict):
+            continue
+
+        project = dict(raw_project)
+        location = project.get("location")
+        if location is not None and not isinstance(location, str):
+            raise ValueError(f"Project '{name}' has an invalid location value.")
+
+        stage = project.get("stage", "Screening")
+        if stage not in {
+            "Screening",
+            "Due diligence",
+            "Negotiation",
+            "Approved",
+            "On hold",
+            "Rejected",
+        }:
+            project["stage"] = "Screening"
+
+        project["schema_version"] = int(project.get("schema_version") or 2)
+        normalized[name] = project
+
+    if not normalized:
+        raise ValueError("No valid projects were found in the JSON file.")
+    return normalized
+
+
+def load_saved_scenarios():
+    default_scenarios = default_project_library()
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         merged = {}
         if isinstance(data, dict):
-            merged.update(data)
-        merged.update(default_scenarios)
+            try:
+                merged.update(validate_project_library(data))
+            except ValueError:
+                pass
+        for name, project in default_scenarios.items():
+            merged.setdefault(name, project)
         return merged
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return default_scenarios
@@ -894,6 +942,17 @@ def load_saved_scenarios():
 def persist_saved_scenarios(data):
     with open(SCENARIO_FILE, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
+
+
+def export_project_library(data):
+    payload = {
+        "schema_version": PROJECT_LIBRARY_SCHEMA,
+        "app": "Jumbo Location Analyzer",
+        "build": BUILD_VERSION,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "projects": data,
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 PROJECT_FIELD_MAP = {
@@ -1018,16 +1077,17 @@ if "active_project_name" not in st.session_state:
     st.session_state["active_project_name"] = None
 if "project_stage" not in st.session_state:
     st.session_state["project_stage"] = "Screening"
+if "project_library" not in st.session_state:
+    st.session_state["project_library"] = load_saved_scenarios()
 
 
 st.title("Jumbo Location Analyzer")
 st.caption(f"Build: {BUILD_VERSION}")
 st.caption(
-    "Retail site-selection prototype inspired by leading location-intelligence workflows: "
-    "trade area, demand, traffic, competition, economics and scoring."
+    "Site selection & investment screening · catchment, demand, access, competition and economics."
 )
 
-saved_projects = load_saved_scenarios()
+saved_projects = st.session_state["project_library"]
 
 pending_load = st.session_state.pop("_pending_project_load", None)
 if pending_load and pending_load in saved_projects:
@@ -1104,15 +1164,101 @@ with st.container(border=True):
             st.warning("Enter a location before saving the project.")
         else:
             saved_projects[clean_name] = capture_project_from_state(clean_name)
+            st.session_state["project_library"] = saved_projects
+            persist_warning = None
             try:
                 persist_saved_scenarios(saved_projects)
-                st.session_state["active_project_name"] = clean_name
-                st.session_state["econ_scenario_name"] = clean_name
-                st.session_state["_pending_project_select"] = clean_name
-                st.success(f"Project saved: {clean_name}")
-                st.rerun()
             except OSError as exc:
-                st.error(f"Could not save project on this app instance: {exc}")
+                persist_warning = str(exc)
+
+            st.session_state["active_project_name"] = clean_name
+            st.session_state["econ_scenario_name"] = clean_name
+            st.session_state["_pending_project_select"] = clean_name
+            if persist_warning:
+                st.warning(
+                    "Project is saved for this session, but local server storage is unavailable. "
+                    "Use Export library below for a durable backup."
+                )
+            else:
+                st.success(f"Project saved: {clean_name}")
+            st.rerun()
+
+    with st.expander("Project library · backup & transfer", expanded=False):
+        st.caption(
+            "Export keeps a durable copy of all projects. Import merges a saved library "
+            "into the current workspace and replaces projects with the same name."
+        )
+
+        backup_col, import_col = st.columns(2)
+        backup_col.download_button(
+            "Export library",
+            data=export_project_library(saved_projects),
+            file_name="jumbo_location_projects.json",
+            mime="application/json",
+            use_container_width=True,
+            key="project_export_library",
+        )
+
+        uploaded_library = import_col.file_uploader(
+            "Import library",
+            type=["json"],
+            accept_multiple_files=False,
+            key="project_import_library_file",
+            label_visibility="collapsed",
+        )
+
+        manage_left, manage_right = st.columns(2)
+        import_clicked = manage_left.button(
+            "Import selected file",
+            use_container_width=True,
+            key="project_import_library_button",
+            disabled=uploaded_library is None,
+        )
+        delete_clicked = manage_right.button(
+            "Delete selected project",
+            use_container_width=True,
+            key="project_delete_selected",
+            disabled=selected_project == "— Select project —",
+        )
+
+        if import_clicked and uploaded_library is not None:
+            try:
+                imported_payload = json.loads(
+                    uploaded_library.getvalue().decode("utf-8")
+                )
+                imported_projects = validate_project_library(imported_payload)
+                saved_projects.update(imported_projects)
+                st.session_state["project_library"] = saved_projects
+                try:
+                    persist_saved_scenarios(saved_projects)
+                except OSError:
+                    pass
+                st.success(
+                    f"Imported {len(imported_projects)} project(s). "
+                    "Existing projects with the same name were updated."
+                )
+                st.rerun()
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                st.error(f"Could not import project library: {exc}")
+
+        if delete_clicked and selected_project != "— Select project —":
+            deleted_name = selected_project
+            saved_projects.pop(deleted_name, None)
+            st.session_state["project_library"] = saved_projects
+            try:
+                persist_saved_scenarios(saved_projects)
+            except OSError:
+                pass
+            if st.session_state.get("active_project_name") == deleted_name:
+                st.session_state["active_project_name"] = None
+            st.session_state["_pending_project_select"] = "— Select project —"
+            st.success(f"Deleted project: {deleted_name}")
+            st.rerun()
+
+        st.caption(
+            f"Projects in library: {len(saved_projects)} · "
+            "For cloud use, keep an exported JSON backup as the portable source of truth."
+        )
 
     location_ready = bool((st.session_state.get("location_query") or "").strip())
     current_analysis = st.session_state.get("analysis")
