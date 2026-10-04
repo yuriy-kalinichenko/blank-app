@@ -20,7 +20,7 @@ OVERPASS_URLS = [
 ]
 USER_AGENT = "JumboLocationAnalyzer/0.1 (site-selection prototype)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
-BUILD_VERSION = "2026-10-04-v9.8"
+BUILD_VERSION = "2026-10-04-v9.9"
 
 
 BASE_ECON_STATE = {
@@ -154,7 +154,7 @@ def fetch_access_context(lat, lon, radius=1500):
     query = f"""
     [out:json][timeout:25];
     (
-      way(around:{radius},{lat},{lon})["highway"~"motorway|trunk|primary|secondary"];
+      way(around:{radius},{lat},{lon})["highway"~"motorway|trunk|primary|secondary|tertiary"];
       nwr(around:{radius},{lat},{lon})["highway"="bus_stop"];
       nwr(around:{radius},{lat},{lon})["public_transport"="platform"];
       nwr(around:{radius},{lat},{lon})["railway"~"tram_stop|station|halt|subway_entrance"];
@@ -205,20 +205,41 @@ def bbox_from_radius(lat, lon, radius_m):
 
 @st.cache_data(ttl=3600)
 def fetch_osm_map_elements(lat, lon, radius_m):
-    """Fetch raw OSM elements from the standard Map API for a small local bbox."""
+    """Fetch raw OSM elements from tiled standard Map API requests for local resilience."""
     west, south, east, north = bbox_from_radius(lat, lon, radius_m)
-    bbox = f"{west:.6f},{south:.6f},{east:.6f},{north:.6f}"
-    url = "https://api.openstreetmap.org/api/0.6/map.json?" + urllib.parse.urlencode({"bbox": bbox})
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=15) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    elements = payload.get("elements")
-    if not isinstance(elements, list):
-        raise RuntimeError("OSM Map API returned no elements list")
-    return elements
+    # Split into a 3x3 grid. Smaller tiles are more reliable in dense urban areas.
+    steps = 3
+    lon_step = (east - west) / steps
+    lat_step = (north - south) / steps
+    merged = {}
+    tile_errors = []
+    for ix in range(steps):
+        for iy in range(steps):
+            tw = west + ix * lon_step
+            te = west + (ix + 1) * lon_step
+            ts = south + iy * lat_step
+            tn = south + (iy + 1) * lat_step
+            bbox = f"{tw:.6f},{ts:.6f},{te:.6f},{tn:.6f}"
+            url = "https://api.openstreetmap.org/api/0.6/map.json?" + urllib.parse.urlencode({"bbox": bbox})
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=12) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                elements = payload.get("elements")
+                if not isinstance(elements, list):
+                    tile_errors.append(f"{bbox}: no elements list")
+                    continue
+                for element in elements:
+                    key = (element.get("type"), element.get("id"))
+                    merged[key] = element
+            except Exception as exc:
+                tile_errors.append(f"{bbox}: {exc}")
+    if not merged:
+        raise RuntimeError("OSM Map API tiles returned no elements. " + " | ".join(tile_errors))
+    return list(merged.values())
 
 
 def osm_element_point(element, node_lookup):
@@ -241,7 +262,7 @@ def osm_element_point(element, node_lookup):
 @st.cache_data(ttl=3600)
 def fetch_osm_map_retail(lat, lon, radius=3000):
     """Keyless retail fallback using the standard OSM Map API."""
-    elements = fetch_osm_map_elements(lat, lon, min(radius, 1800))
+    elements = fetch_osm_map_elements(lat, lon, radius)
     node_lookup = {
         e["id"]: (float(e["lat"]), float(e["lon"]))
         for e in elements
@@ -285,14 +306,14 @@ def fetch_osm_map_retail(lat, lon, radius=3000):
 @st.cache_data(ttl=3600)
 def fetch_osm_map_access(lat, lon, radius=1500):
     """Keyless access fallback using the standard OSM Map API."""
-    elements = fetch_osm_map_elements(lat, lon, min(radius, 1800))
+    elements = fetch_osm_map_elements(lat, lon, max(radius, 2500))
     node_lookup = {
         e["id"]: (float(e["lat"]), float(e["lon"]))
         for e in elements
         if e.get("type") == "node" and e.get("lat") is not None and e.get("lon") is not None
     }
 
-    allowed_highways = {"motorway", "trunk", "primary", "secondary", "bus_stop"}
+    allowed_highways = {"motorway", "trunk", "primary", "secondary", "tertiary", "bus_stop"}
     allowed_railway = {"tram_stop", "station", "halt", "subway_entrance"}
     rows = []
     for element in elements:
@@ -335,12 +356,18 @@ def fetch_access_with_fallback(lat, lon, radius=1500):
         ("OpenStreetMap / Overpass", lambda: fetch_access_context(lat, lon, radius)),
         ("OpenStreetMap Map API", lambda: fetch_osm_map_access(lat, lon, radius)),
     ]
+    successful_empty = []
     for provider_name, loader in providers:
         try:
             rows = loader()
-            return rows, provider_name, diagnostics
+            if rows:
+                return rows, provider_name, diagnostics
+            successful_empty.append(provider_name)
+            diagnostics.append(f"{provider_name}: responded successfully but returned 0 matching access features")
         except Exception as exc:
             diagnostics.append(f"{provider_name}: {exc}")
+    if successful_empty:
+        return [], " + ".join(successful_empty), diagnostics
     raise RuntimeError("All access providers failed. " + " | ".join(diagnostics))
 
 
@@ -514,12 +541,18 @@ def fetch_retail_with_fallback(lat, lon, radius=3000):
         )
     else:
         diagnostics.append("HERE Discover: not configured (missing HERE_API_KEY)")
+    successful_empty = []
     for provider_name, loader in providers:
         try:
             rows = loader()
-            return rows, provider_name, diagnostics
+            if rows:
+                return rows, provider_name, diagnostics
+            successful_empty.append(provider_name)
+            diagnostics.append(f"{provider_name}: responded successfully but returned 0 matching retail POIs")
         except Exception as exc:
             diagnostics.append(f"{provider_name}: {exc}")
+    if successful_empty:
+        return [], " + ".join(successful_empty), diagnostics
     raise RuntimeError("All retail providers failed. " + " | ".join(diagnostics))
 
 
