@@ -2296,6 +2296,53 @@ if analysis:
         else:
             st.caption("Active project: unsaved working copy")
 
+        # Commercial form source of truth: the saved project.
+        # Sync immediately before rendering the widgets when the screen is empty.
+        if active_project and active_project in saved_projects:
+            active_saved = saved_projects[active_project]
+            required_saved_keys = ("area", "rent", "capex", "annual_sales", "gross_margin")
+            saved_ready = all(
+                float(active_saved.get(key) or 0) > 0 for key in required_saved_keys
+            )
+
+            # Recover the agreed Karavan baseline if its stored commercial block
+            # was partially or fully zeroed by an older app build.
+            is_karavan = (
+                "karavan" in active_project.lower()
+                or "karavan" in str(active_saved.get("location") or "").lower()
+            )
+            if is_karavan and not saved_ready:
+                active_saved.update(
+                    {
+                        "currency": "EUR",
+                        "area": 4500.0,
+                        "rent": 5.0,
+                        "capex": 2500000.0,
+                        "annual_sales": 5000000.0,
+                        "gross_margin": 50.0,
+                        "payroll": 250000.0,
+                        "utilities": 120000.0,
+                        "logistics": 20000.0,
+                        "other_opex": 100000.0,
+                        "schema_version": 2,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                saved_ready = True
+                try:
+                    persist_saved_scenarios(saved_projects)
+                except OSError:
+                    pass
+
+            screen_empty = not any(
+                float(st.session_state.get(key) or 0) > 0
+                for key in ("econ_area", "econ_rent", "econ_capex", "econ_sales", "econ_margin")
+            )
+            if saved_ready and screen_empty:
+                for source_key, state_key in PROJECT_FIELD_MAP.items():
+                    if source_key in active_saved:
+                        st.session_state[state_key] = active_saved[source_key]
+
         st.caption(
             "Enter the commercial assumptions directly below. Results recalculate automatically, "
             "and Save to project stores the values inside the current project."
