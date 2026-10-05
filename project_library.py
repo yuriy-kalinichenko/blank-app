@@ -24,7 +24,7 @@ def default_project_library():
             "annual_sales": 5000000.0,
             "gross_margin": 50.0,
             "payroll": 250000.0,
-            "utilities": 12000.0,
+            "utilities": 120000.0,
             "logistics": 20000.0,
             "other_opex": 100000.0,
             "stage": "Screening",

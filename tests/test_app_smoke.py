@@ -36,7 +36,7 @@ def test_app_starts_and_project_workspace_is_present():
 def test_commercial_workflow_is_simple_and_upload_is_advanced():
     source = APP_PATH.read_text(encoding="utf-8")
     assert '"Save to project"' in source
-    assert 'key="commercial_save_to_project"' in source
+    assert 'key=f"commercial_save_to_project__{project_key}"' in source
     assert 'with st.expander("Advanced · upload commercial file"' in source
     assert 'key="commercial_data_upload"' in source
     assert '"Apply commercial data"' in source
@@ -95,9 +95,24 @@ def test_karavan_recovery_handles_partial_zero_state():
     assert "apply_project_to_state(" in source
 
 
-def test_commercial_tab_syncs_saved_project_before_widgets():
+def test_commercial_tab_reads_directly_from_saved_project():
     source = APP_PATH.read_text(encoding="utf-8")
-    assert "Commercial form source of truth: the saved project." in source
-    assert 'if active_project and active_project in saved_projects:' in source
-    assert "if saved_ready and screen_empty:" in source
-    assert 'st.session_state[state_key] = active_saved[source_key]' in source
+    assert 'active_saved = saved_projects.get(active_project, {}) if active_project else {}' in source
+    assert 'value=float(active_saved.get("area") or 0)' in source
+    assert 'value=float(active_saved.get("annual_sales") or 0)' in source
+    assert 'saved_projects[active_project] = project_record' in source
+
+def test_commercial_form_state_is_scoped_per_project():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'project_key = re.sub(' in source
+    for fragment in [
+        'key=f"commercial_area__{project_key}"',
+        'key=f"commercial_rent__{project_key}"',
+        'key=f"commercial_capex__{project_key}"',
+        'key=f"commercial_sales__{project_key}"',
+        'key=f"commercial_margin__{project_key}"',
+        'key=f"commercial_save_to_project__{project_key}"',
+    ]:
+        assert fragment in source
+    assert 'saved_projects[active_project] = project_record' in source
+    assert 'saved_projects[active_project] = capture_project_from_state(active_project)' not in source
