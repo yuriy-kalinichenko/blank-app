@@ -1251,7 +1251,7 @@ for _name, _project in saved_projects.items():
         float(_project.get("annual_sales") or 0),
         float(_project.get("gross_margin") or 0),
     ]
-    if _is_karavan and not any(_core_values):
+    if _is_karavan and not all(value > 0 for value in _core_values):
         _project.update(
             {
                 "currency": "EUR",
@@ -1272,6 +1272,17 @@ for _name, _project in saved_projects.items():
             persist_saved_scenarios(saved_projects)
         except OSError:
             pass
+        st.session_state["_recovered_project_name"] = _name
+
+_recovered_project_name = st.session_state.pop("_recovered_project_name", None)
+if (
+    _recovered_project_name
+    and st.session_state.get("active_project_name") == _recovered_project_name
+):
+    apply_project_to_state(
+        _recovered_project_name,
+        saved_projects[_recovered_project_name],
+    )
 
 PROJECT_SELECTOR_PLACEHOLDER = "— Select project —"
 
