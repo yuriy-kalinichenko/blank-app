@@ -1238,6 +1238,41 @@ st.caption(
 )
 
 saved_projects = st.session_state["project_library"]
+
+# One-time recovery for the Karavan baseline if an earlier Workspace Save
+# accidentally replaced its commercial assumptions with zeros.
+for _name, _project in saved_projects.items():
+    _location = str(_project.get("location") or "").lower()
+    _is_karavan = "karavan" in _name.lower() or "karavan" in _location
+    _core_values = [
+        float(_project.get("area") or 0),
+        float(_project.get("rent") or 0),
+        float(_project.get("capex") or 0),
+        float(_project.get("annual_sales") or 0),
+        float(_project.get("gross_margin") or 0),
+    ]
+    if _is_karavan and not any(_core_values):
+        _project.update(
+            {
+                "currency": "EUR",
+                "area": 4500.0,
+                "rent": 5.0,
+                "capex": 2500000.0,
+                "annual_sales": 5000000.0,
+                "gross_margin": 50.0,
+                "payroll": 250000.0,
+                "utilities": 120000.0,
+                "logistics": 20000.0,
+                "other_opex": 100000.0,
+                "schema_version": 2,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        try:
+            persist_saved_scenarios(saved_projects)
+        except OSError:
+            pass
+
 PROJECT_SELECTOR_PLACEHOLDER = "— Select project —"
 
 pending_load = st.session_state.pop("_pending_project_load", None)
@@ -1354,7 +1389,28 @@ with st.container(border=True):
             elif not (st.session_state.get("location_query") or "").strip():
                 st.warning("Enter a location before saving the project.")
             else:
-                saved_projects[target_name] = capture_project_from_state(target_name)
+                if is_new_project:
+                    saved_projects[target_name] = capture_project_from_state(target_name)
+                else:
+                    # Workspace Save changes updates project metadata only.
+                    # Commercial assumptions are owned by the Commercial Economics
+                    # "Save to project" action and must never be overwritten by
+                    # zero/empty widget state from a rerun or analysis.
+                    existing_project = dict(saved_projects.get(target_name, {}))
+                    existing_project["location"] = (
+                        st.session_state.get("location_query") or ""
+                    ).strip()
+                    existing_project["stage"] = st.session_state.get(
+                        "project_stage", "Screening"
+                    )
+                    existing_project["updated_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                    existing_project["schema_version"] = int(
+                        existing_project.get("schema_version") or 2
+                    )
+                    saved_projects[target_name] = existing_project
+
                 st.session_state["project_library"] = saved_projects
                 persist_warning = None
                 try:
