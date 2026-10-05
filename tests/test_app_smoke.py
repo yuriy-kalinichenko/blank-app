@@ -116,3 +116,12 @@ def test_commercial_form_state_is_scoped_per_project():
         assert fragment in source
     assert 'saved_projects[active_project] = project_record' in source
     assert 'saved_projects[active_project] = capture_project_from_state(active_project)' not in source
+
+
+def test_create_project_migrates_working_copy_commercial_values():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert '"commercial_area__working_copy"' in source
+    assert '"commercial_sales__working_copy"' in source
+    assert '"commercial_utilities__working_copy"' in source
+    assert "new_project[field] = st.session_state[state_key]" in source
+    assert "saved_projects[target_name] = new_project" in source
