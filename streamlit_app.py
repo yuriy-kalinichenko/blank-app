@@ -1574,6 +1574,68 @@ with st.container(border=True):
         f"Economics {'✓' if economics_ready else '—'}"
     )
 
+active_project_for_card = st.session_state.get("active_project_name")
+if active_project_for_card and active_project_for_card in saved_projects:
+    card_project = saved_projects[active_project_for_card]
+    card_area = float(card_project.get("area") or 0)
+    card_rent = float(card_project.get("rent") or 0)
+    card_sales = float(card_project.get("annual_sales") or 0)
+    card_margin = float(card_project.get("gross_margin") or 0)
+    card_payroll = float(card_project.get("payroll") or 0)
+    card_utilities = float(card_project.get("utilities") or 0)
+    card_logistics = float(card_project.get("logistics") or 0)
+    card_other_opex = float(card_project.get("other_opex") or 0)
+    card_capex = float(card_project.get("capex") or 0)
+
+    card_annual_rent = card_area * card_rent * 12
+    card_gross_profit = card_sales * card_margin / 100
+    card_ebitda = (
+        card_gross_profit
+        - card_annual_rent
+        - card_payroll
+        - card_utilities
+        - card_logistics
+        - card_other_opex
+    )
+    card_ebitda_margin = card_ebitda / card_sales * 100 if card_sales > 0 else None
+    card_payback = card_capex / card_ebitda if card_capex > 0 and card_ebitda > 0 else None
+    card_sales_density = card_sales / card_area if card_area > 0 else None
+
+    with st.container(border=True):
+        st.markdown(f"### Project card · {active_project_for_card}")
+        st.caption(
+            f"{card_project.get('location', '')} · "
+            f"{card_project.get('stage', 'Screening')} · "
+            f"{card_project.get('currency', 'EUR')}"
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Area", f"{card_area:,.0f} m²" if card_area > 0 else "—")
+        c2.metric("Annual sales", f"{card_sales:,.0f}" if card_sales > 0 else "—")
+        c3.metric(
+            "EBITDA margin",
+            f"{card_ebitda_margin:.1f}%" if card_ebitda_margin is not None else "—",
+        )
+        c4.metric(
+            "Payback",
+            f"{card_payback:.1f} years" if card_payback is not None else "—",
+        )
+
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric(
+            "Sales density",
+            f"{card_sales_density:,.0f}/m²" if card_sales_density is not None else "—",
+        )
+        c6.metric("CAPEX", f"{card_capex:,.0f}" if card_capex > 0 else "—")
+        c7.metric("EBITDA", f"{card_ebitda:,.0f}" if card_sales > 0 else "—")
+        c8.metric("Stage", card_project.get("stage", "Screening"))
+
+        st.caption(
+            "Run Analyze location below to open the full project analysis: "
+            "Overview, Catchment & demand, Traffic & access, Competition, "
+            "Commercial & economics, and Methodology."
+        )
+
 comparison_df = build_project_comparison(saved_projects)
 if len(comparison_df) >= 2:
     st.markdown("### Portfolio comparison")
