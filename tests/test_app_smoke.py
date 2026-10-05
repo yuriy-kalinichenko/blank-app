@@ -124,3 +124,32 @@ def test_selected_project_card_is_present():
     for label in ["Area", "Annual sales", "EBITDA margin", "Payback", "Sales density", "CAPEX", "EBITDA", "Stage"]:
         assert f'"{label}"' in source
     assert "Run Analyze location below to open the full project analysis" in source
+
+
+def test_project_pipeline_workflow_is_present():
+    source = APP_PATH.read_text(encoding="utf-8")
+    for stage in [
+        "Screening",
+        "Due diligence",
+        "Negotiation",
+        "Approval",
+        "Implementation",
+        "Open",
+        "On hold",
+        "Cancelled",
+    ]:
+        assert f'"{stage}"' in source
+    for label in ["Next action", "Owner", "Deadline", "Details"]:
+        assert f'"{label}"' in source
+    assert '"#### Project pipeline"' in source
+    assert '"Details · map & full analysis"' in source
+    assert '"_auto_analyze_project"' in source
+    assert 'auto_analyze = bool(' in source
+
+
+def test_project_workflow_metadata_is_saved():
+    source = APP_PATH.read_text(encoding="utf-8")
+    for field in ["next_action", "owner", "deadline"]:
+        assert f'project["{field}"]' in source or f'existing_project["{field}"]' in source
+    assert 'pipeline_project["stage"] = pipeline_stage' in source
+    assert 'persist_saved_scenarios(saved_projects)' in source
