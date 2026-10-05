@@ -101,3 +101,19 @@ def test_commercial_tab_syncs_saved_project_before_widgets():
     assert 'if active_project and active_project in saved_projects:' in source
     assert "if saved_ready and screen_empty:" in source
     assert 'st.session_state[state_key] = active_saved[source_key]' in source
+
+
+def test_commercial_form_state_is_scoped_per_project():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'project_key = re.sub(' in source
+    for fragment in [
+        'key=f"commercial_area__{project_key}"',
+        'key=f"commercial_rent__{project_key}"',
+        'key=f"commercial_capex__{project_key}"',
+        'key=f"commercial_sales__{project_key}"',
+        'key=f"commercial_margin__{project_key}"',
+        'key=f"commercial_save_to_project__{project_key}"',
+    ]:
+        assert fragment in source
+    assert 'saved_projects[active_project] = project_record' in source
+    assert 'saved_projects[active_project] = capture_project_from_state(active_project)' not in source
