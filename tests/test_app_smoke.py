@@ -116,3 +116,11 @@ def test_commercial_form_state_is_scoped_per_project():
         assert fragment in source
     assert 'saved_projects[active_project] = project_record' in source
     assert 'saved_projects[active_project] = capture_project_from_state(active_project)' not in source
+
+
+def test_selected_project_card_is_present():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert '"### Project card · {active_project_for_card}"' in source
+    for label in ["Area", "Annual sales", "EBITDA margin", "Payback", "Sales density", "CAPEX", "EBITDA", "Stage"]:
+        assert f'"{label}"' in source
+    assert "Run Analyze location below to open the full project analysis" in source
