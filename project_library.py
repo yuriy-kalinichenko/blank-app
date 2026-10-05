@@ -66,10 +66,6 @@ def validate_project_library(payload):
         stage = project.get("stage", "Screening")
         stage = LEGACY_STAGE_MAP.get(stage, stage)
         project["stage"] = stage if stage in ALLOWED_STAGES else "Screening"
-        project["next_action"] = str(project.get("next_action") or "").strip()
-        project["owner"] = str(project.get("owner") or "").strip()
-        project["deadline"] = str(project.get("deadline") or "").strip()
-
         project["schema_version"] = int(project.get("schema_version") or 2)
         normalized[name] = project
 
