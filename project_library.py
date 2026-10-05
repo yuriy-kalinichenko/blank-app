@@ -7,9 +7,16 @@ ALLOWED_STAGES = {
     "Screening",
     "Due diligence",
     "Negotiation",
-    "Approved",
+    "Approval",
+    "Implementation",
+    "Open",
     "On hold",
-    "Rejected",
+    "Cancelled",
+}
+
+LEGACY_STAGE_MAP = {
+    "Approved": "Approval",
+    "Rejected": "Cancelled",
 }
 
 
@@ -28,6 +35,9 @@ def default_project_library():
             "logistics": 20000.0,
             "other_opex": 100000.0,
             "stage": "Screening",
+            "next_action": "",
+            "owner": "",
+            "deadline": "",
             "schema_version": 2,
         }
     }
@@ -53,9 +63,9 @@ def validate_project_library(payload):
         if location is not None and not isinstance(location, str):
             raise ValueError(f"Project '{name}' has an invalid location value.")
 
-        if project.get("stage", "Screening") not in ALLOWED_STAGES:
-            project["stage"] = "Screening"
-
+        stage = project.get("stage", "Screening")
+        stage = LEGACY_STAGE_MAP.get(stage, stage)
+        project["stage"] = stage if stage in ALLOWED_STAGES else "Screening"
         project["schema_version"] = int(project.get("schema_version") or 2)
         normalized[name] = project
 
