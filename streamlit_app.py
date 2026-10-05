@@ -1833,7 +1833,11 @@ if len(comparison_df) >= 2:
             key=f"pipeline_details__{pipeline_key}",
             use_container_width=True,
         ):
-            apply_project_to_state(pipeline_name, pipeline_project)
+            # Queue the project load for the next rerun. Calling
+            # apply_project_to_state() here would mutate widget-backed
+            # session_state keys after those widgets were already rendered,
+            # which Streamlit rejects at runtime.
+            st.session_state["_pending_project_load"] = pipeline_name
             st.session_state["_pending_project_select"] = pipeline_name
             st.session_state["_auto_analyze_project"] = pipeline_name
             st.session_state["_project_flash"] = f"Opening full analysis: {pipeline_name}"

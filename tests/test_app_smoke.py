@@ -161,3 +161,11 @@ def test_legacy_stage_values_are_normalized_when_loading():
     assert 'loaded_stage = "Approval"' in source
     assert 'elif loaded_stage == "Rejected":' in source
     assert 'loaded_stage = "Cancelled"' in source
+
+
+def test_pipeline_details_queues_project_load_before_rerun():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'st.session_state["_pending_project_load"] = pipeline_name' in source
+    assert 'st.session_state["_auto_analyze_project"] = pipeline_name' in source
+    details_block = source.split('key=f"pipeline_details__{pipeline_key}"', 1)[1].split("st.rerun()", 1)[0]
+    assert "apply_project_to_state(pipeline_name, pipeline_project)" not in details_block
