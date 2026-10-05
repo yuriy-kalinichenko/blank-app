@@ -123,7 +123,7 @@ def test_selected_project_card_is_present():
     assert '"### Project card · {active_project_for_card}"' in source
     for label in ["Area", "Annual sales", "EBITDA margin", "Payback", "Sales density", "CAPEX", "EBITDA", "Stage"]:
         assert f'"{label}"' in source
-    assert "Run Analyze location below to open the full project analysis" in source
+    assert "Details opens the saved project and refreshes the full location analysis" in source
 
 
 def test_project_pipeline_workflow_is_present():
@@ -153,3 +153,11 @@ def test_project_workflow_metadata_is_saved():
         assert f'project["{field}"]' in source or f'existing_project["{field}"]' in source
     assert 'pipeline_project["stage"] = pipeline_stage' in source
     assert 'persist_saved_scenarios(saved_projects)' in source
+
+
+def test_legacy_stage_values_are_normalized_when_loading():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert 'if loaded_stage == "Approved":' in source
+    assert 'loaded_stage = "Approval"' in source
+    assert 'elif loaded_stage == "Rejected":' in source
+    assert 'loaded_stage = "Cancelled"' in source
