@@ -41,3 +41,10 @@ def test_commercial_workflow_is_simple_and_upload_is_advanced():
     assert 'key="commercial_data_upload"' in source
     assert '"Apply commercial data"' in source
     assert 'key="commercial_data_apply"' in source
+
+
+def test_commercial_save_rejects_incomplete_required_fields():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert '"Commercial data was not saved. Fill the required fields first: "' in source
+    for label in ["Store area", "Rent", "CAPEX", "Annual sales", "Gross margin"]:
+        assert f'"{label}"' in source
