@@ -1117,7 +1117,14 @@ def apply_project_to_state(project_name, project):
             st.session_state[state_key] = project[source_key]
 
     st.session_state["project_name_input"] = project_name
-    st.session_state["project_stage"] = project.get("stage", "Screening")
+    loaded_stage = project.get("stage", "Screening")
+    if loaded_stage == "Approved":
+        loaded_stage = "Approval"
+    elif loaded_stage == "Rejected":
+        loaded_stage = "Cancelled"
+    if loaded_stage not in PROJECT_STAGE_OPTIONS:
+        loaded_stage = "Screening"
+    st.session_state["project_stage"] = loaded_stage
     st.session_state["project_next_action"] = project.get("next_action", "")
     st.session_state["project_owner"] = project.get("owner", "")
     st.session_state["project_deadline"] = project.get("deadline", "")
