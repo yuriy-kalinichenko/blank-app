@@ -2296,22 +2296,18 @@ if analysis:
         else:
             st.caption("Active project: unsaved working copy")
 
-        # Commercial form source of truth: the saved project.
-        # Sync immediately before rendering the widgets when the screen is empty.
-        if active_project and active_project in saved_projects:
-            active_saved = saved_projects[active_project]
-            required_saved_keys = ("area", "rent", "capex", "annual_sales", "gross_margin")
-            saved_ready = all(
-                float(active_saved.get(key) or 0) > 0 for key in required_saved_keys
-            )
-
-            # Recover the agreed Karavan baseline if its stored commercial block
-            # was partially or fully zeroed by an older app build.
-            is_karavan = (
+        active_saved = saved_projects.get(active_project, {}) if active_project else {}
+        is_karavan = bool(
+            active_project
+            and (
                 "karavan" in active_project.lower()
                 or "karavan" in str(active_saved.get("location") or "").lower()
             )
-            if is_karavan and not saved_ready:
+        )
+
+        if is_karavan:
+            required_saved_keys = ("area", "rent", "capex", "annual_sales", "gross_margin")
+            if not all(float(active_saved.get(key) or 0) > 0 for key in required_saved_keys):
                 active_saved.update(
                     {
                         "currency": "EUR",
@@ -2328,31 +2324,28 @@ if analysis:
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
                 )
-                saved_ready = True
+                saved_projects[active_project] = active_saved
+                st.session_state["project_library"] = saved_projects
                 try:
                     persist_saved_scenarios(saved_projects)
                 except OSError:
                     pass
-
-            screen_empty = not any(
-                float(st.session_state.get(key) or 0) > 0
-                for key in ("econ_area", "econ_rent", "econ_capex", "econ_sales", "econ_margin")
-            )
-            if saved_ready and screen_empty:
-                for source_key, state_key in PROJECT_FIELD_MAP.items():
-                    if source_key in active_saved:
-                        st.session_state[state_key] = active_saved[source_key]
 
         st.caption(
             "Enter the commercial assumptions directly below. Results recalculate automatically, "
             "and Save to project stores the values inside the current project."
         )
 
+        project_key = re.sub(r"[^a-zA-Z0-9_-]+", "_", active_project or "working_copy")
+        stored_currency = str(active_saved.get("currency") or "EUR")
+        if stored_currency not in {"EUR", "USD", "UAH"}:
+            stored_currency = "EUR"
+
         currency = st.selectbox(
             "Currency",
             ["EUR", "USD", "UAH"],
-            index=0,
-            key="econ_currency",
+            index=["EUR", "USD", "UAH"].index(stored_currency),
+            key=f"commercial_currency__{project_key}",
         )
         currency_symbol = {"EUR": "€", "USD": "$", "UAH": "₴"}[currency]
 
@@ -2360,77 +2353,77 @@ if analysis:
         area = e1.number_input(
             "Store area, m²",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("area") or 0),
             step=100.0,
-            key="econ_area",
+            key=f"commercial_area__{project_key}",
         )
         rent = e2.number_input(
             f"Rent, {currency}/m²/month",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("rent") or 0),
             step=0.5,
-            key="econ_rent",
+            key=f"commercial_rent__{project_key}",
         )
         capex = e3.number_input(
             f"CAPEX, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("capex") or 0),
             step=10000.0,
-            key="econ_capex",
+            key=f"commercial_capex__{project_key}",
         )
 
         e4, e5, e6 = st.columns(3)
         annual_sales = e4.number_input(
             f"Expected annual sales, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("annual_sales") or 0),
             step=100000.0,
-            key="econ_sales",
+            key=f"commercial_sales__{project_key}",
         )
         gross_margin = e5.number_input(
             "Gross margin, %",
             min_value=0.0,
             max_value=100.0,
-            value=0.0,
+            value=float(active_saved.get("gross_margin") or 0),
             step=0.5,
-            key="econ_margin",
+            key=f"commercial_margin__{project_key}",
         )
         payroll = e6.number_input(
             f"Annual payroll, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("payroll") or 0),
             step=10000.0,
-            key="econ_payroll",
+            key=f"commercial_payroll__{project_key}",
         )
 
         e7, e8, e9 = st.columns(3)
         utilities = e7.number_input(
             f"Utilities & maintenance / year, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("utilities") or 0),
             step=5000.0,
-            key="econ_utilities",
+            key=f"commercial_utilities__{project_key}",
         )
         logistics = e8.number_input(
             f"Local logistics / year, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("logistics") or 0),
             step=5000.0,
-            key="econ_logistics",
+            key=f"commercial_logistics__{project_key}",
         )
         other_opex = e9.number_input(
             f"Other annual OPEX, {currency}",
             min_value=0.0,
-            value=0.0,
+            value=float(active_saved.get("other_opex") or 0),
             step=5000.0,
-            key="econ_other_opex",
+            key=f"commercial_other_opex__{project_key}",
         )
 
         save_commercial_clicked = st.button(
             "Save to project",
             type="primary",
             use_container_width=True,
-            key="commercial_save_to_project",
+            key=f"commercial_save_to_project__{project_key}",
             disabled=not bool(active_project),
         )
         if save_commercial_clicked:
@@ -2451,7 +2444,24 @@ if analysis:
                     + "."
                 )
             else:
-                saved_projects[active_project] = capture_project_from_state(active_project)
+                project_record = dict(saved_projects.get(active_project, {}))
+                project_record.update(
+                    {
+                        "currency": currency,
+                        "area": float(area),
+                        "rent": float(rent),
+                        "capex": float(capex),
+                        "annual_sales": float(annual_sales),
+                        "gross_margin": float(gross_margin),
+                        "payroll": float(payroll),
+                        "utilities": float(utilities),
+                        "logistics": float(logistics),
+                        "other_opex": float(other_opex),
+                        "schema_version": 2,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                saved_projects[active_project] = project_record
                 st.session_state["project_library"] = saved_projects
                 try:
                     persist_saved_scenarios(saved_projects)
