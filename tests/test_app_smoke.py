@@ -93,3 +93,11 @@ def test_karavan_recovery_handles_partial_zero_state():
     assert "not all(value > 0 for value in _core_values)" in source
     assert 'st.session_state["_recovered_project_name"] = _name' in source
     assert "apply_project_to_state(" in source
+
+
+def test_commercial_tab_syncs_saved_project_before_widgets():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert "Commercial form source of truth: the saved project." in source
+    assert 'if active_project and active_project in saved_projects:' in source
+    assert "if saved_ready and screen_empty:" in source
+    assert 'st.session_state[state_key] = active_saved[source_key]' in source
