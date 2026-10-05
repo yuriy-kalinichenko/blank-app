@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v1.0-rc1"
+BUILD_VERSION = "2026-10-05-v1.0-rc2"
 
 
 BASE_ECON_STATE = {
@@ -1144,7 +1144,7 @@ def capture_project_from_state(project_name):
 
 
 def build_project_comparison(projects):
-    """Create a decision-friendly comparison table from saved project assumptions."""
+    """Create a transparent commercial comparison from saved project assumptions."""
     rows = []
     for name, project in projects.items():
         area = float(project.get("area") or 0)
@@ -1162,6 +1162,8 @@ def build_project_comparison(projects):
         ebitda = gross_profit - annual_rent - payroll - utilities - logistics - other_opex
         ebitda_margin = ebitda / sales * 100 if sales > 0 else None
         payback = capex / ebitda if capex > 0 and ebitda > 0 else None
+        sales_density = sales / area if area > 0 else None
+        occupancy_cost = annual_rent / sales * 100 if sales > 0 else None
 
         rows.append(
             {
@@ -1170,13 +1172,33 @@ def build_project_comparison(projects):
                 "Location": project.get("location", ""),
                 "Area, m²": area or None,
                 "Annual sales": sales or None,
+                "Sales density / m²": round(sales_density) if sales_density is not None else None,
+                "EBITDA": round(ebitda) if sales > 0 else None,
                 "EBITDA margin, %": round(ebitda_margin, 1) if ebitda_margin is not None else None,
+                "Occupancy cost, %": round(occupancy_cost, 1) if occupancy_cost is not None else None,
                 "Payback, years": round(payback, 1) if payback is not None else None,
+                "CAPEX": capex or None,
                 "Currency": project.get("currency", "EUR"),
             }
         )
-    return pd.DataFrame(rows)
 
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    df["_positive_ebitda"] = df["EBITDA"].fillna(float("-inf")) > 0
+    df["_payback_sort"] = df["Payback, years"].fillna(float("inf"))
+    df["_margin_sort"] = df["EBITDA margin, %"].fillna(float("-inf"))
+    df["_density_sort"] = df["Sales density / m²"].fillna(float("-inf"))
+    df = df.sort_values(
+        by=["_positive_ebitda", "_payback_sort", "_margin_sort", "_density_sort"],
+        ascending=[False, True, False, False],
+        kind="stable",
+    ).reset_index(drop=True)
+    df.insert(0, "Commercial priority", range(1, len(df) + 1))
+    return df.drop(
+        columns=["_positive_ebitda", "_payback_sort", "_margin_sort", "_density_sort"]
+    )
 
 def distance_km(lat1, lon1, lat2, lon2):
     if lat2 is None or lon2 is None:
@@ -1483,6 +1505,56 @@ with st.container(border=True):
         f"{readiness}/3 · Location {'✓' if location_ready else '—'} · "
         f"Live analysis {'✓' if analysis_ready else '—'} · "
         f"Economics {'✓' if economics_ready else '—'}"
+    )
+
+comparison_df = build_project_comparison(saved_projects)
+if len(comparison_df) >= 2:
+    st.markdown("### Portfolio comparison")
+    st.caption(
+        "Commercial priority uses saved assumptions only: positive EBITDA first, then faster payback, "
+        "higher EBITDA margin and higher sales density. It is a screening order, not a final investment approval."
+    )
+
+    lead = comparison_df.iloc[0]
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Projects compared", len(comparison_df))
+    p2.metric("Commercial priority #1", lead["Project"])
+    p3.metric(
+        "Priority #1 payback",
+        f'{lead["Payback, years"]:.1f} years'
+        if pd.notna(lead["Payback, years"])
+        else "—",
+    )
+    p4.metric(
+        "Priority #1 EBITDA margin",
+        f'{lead["EBITDA margin, %"]:.1f}%'
+        if pd.notna(lead["EBITDA margin, %"])
+        else "—",
+    )
+
+    st.dataframe(
+        comparison_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Annual sales": st.column_config.NumberColumn(format="%.0f"),
+            "Sales density / m²": st.column_config.NumberColumn(format="%.0f"),
+            "EBITDA": st.column_config.NumberColumn(format="%.0f"),
+            "EBITDA margin, %": st.column_config.NumberColumn(format="%.1f%%"),
+            "Occupancy cost, %": st.column_config.NumberColumn(format="%.1f%%"),
+            "Payback, years": st.column_config.NumberColumn(format="%.1f"),
+            "CAPEX": st.column_config.NumberColumn(format="%.0f"),
+        },
+    )
+
+    chart_data = comparison_df.dropna(subset=["EBITDA"]).set_index("Project")[["EBITDA"]]
+    if not chart_data.empty:
+        st.markdown("#### EBITDA comparison")
+        st.bar_chart(chart_data, use_container_width=True)
+else:
+    st.info(
+        "Portfolio comparison will appear after at least two projects are saved. "
+        "Add the next location and its commercial assumptions to start comparing."
     )
 
 location = st.text_input(
