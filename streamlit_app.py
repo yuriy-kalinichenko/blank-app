@@ -36,7 +36,18 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v1.0-rc1"
+BUILD_VERSION = "2026-10-05-v1.1-pipeline"
+
+PROJECT_STAGE_OPTIONS = [
+    "Screening",
+    "Due diligence",
+    "Negotiation",
+    "Approval",
+    "Implementation",
+    "Open",
+    "On hold",
+    "Cancelled",
+]
 
 
 BASE_ECON_STATE = {
@@ -1107,6 +1118,9 @@ def apply_project_to_state(project_name, project):
 
     st.session_state["project_name_input"] = project_name
     st.session_state["project_stage"] = project.get("stage", "Screening")
+    st.session_state["project_next_action"] = project.get("next_action", "")
+    st.session_state["project_owner"] = project.get("owner", "")
+    st.session_state["project_deadline"] = project.get("deadline", "")
     st.session_state["active_project_name"] = project_name
     st.session_state["econ_scenario_name"] = project_name
 
@@ -1125,6 +1139,9 @@ def reset_project_state():
             st.session_state[state_key] = 0.0
     st.session_state["project_name_input"] = "New Jumbo project"
     st.session_state["project_stage"] = "Screening"
+    st.session_state["project_next_action"] = ""
+    st.session_state["project_owner"] = ""
+    st.session_state["project_deadline"] = ""
     st.session_state["active_project_name"] = None
     st.session_state["econ_scenario_name"] = "New Jumbo project"
     st.session_state.pop("analysis", None)
@@ -1137,6 +1154,9 @@ def capture_project_from_state(project_name):
         "location": (st.session_state.get("location_query") or "").strip(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "stage": st.session_state.get("project_stage", "Screening"),
+        "next_action": (st.session_state.get("project_next_action") or "").strip(),
+        "owner": (st.session_state.get("project_owner") or "").strip(),
+        "deadline": (st.session_state.get("project_deadline") or "").strip(),
     }
     for source_key, state_key in PROJECT_FIELD_MAP.items():
         project[source_key] = st.session_state.get(state_key)
@@ -1169,6 +1189,9 @@ def build_project_comparison(projects):
             {
                 "Project": name,
                 "Stage": project.get("stage", "Screening"),
+                "Next action": project.get("next_action", ""),
+                "Owner": project.get("owner", ""),
+                "Deadline": project.get("deadline", ""),
                 "Location": project.get("location", ""),
                 "Area, m²": area or None,
                 "Annual sales": sales or None,
@@ -1227,6 +1250,12 @@ if "active_project_name" not in st.session_state:
     st.session_state["active_project_name"] = None
 if "project_stage" not in st.session_state:
     st.session_state["project_stage"] = "Screening"
+if "project_next_action" not in st.session_state:
+    st.session_state["project_next_action"] = ""
+if "project_owner" not in st.session_state:
+    st.session_state["project_owner"] = ""
+if "project_deadline" not in st.session_state:
+    st.session_state["project_deadline"] = ""
 if "project_library" not in st.session_state:
     st.session_state["project_library"] = load_saved_scenarios()
 
@@ -1338,8 +1367,25 @@ with st.container(border=True):
     )
     project_right.selectbox(
         "Stage",
-        ["Screening", "Due diligence", "Negotiation", "Approved", "On hold", "Rejected"],
+        PROJECT_STAGE_OPTIONS,
         key="project_stage",
+    )
+
+    workflow_action, workflow_owner, workflow_deadline = st.columns([1.5, 0.8, 0.7])
+    workflow_action.text_input(
+        "Next action",
+        key="project_next_action",
+        placeholder="Example: Review lease draft with landlord",
+    )
+    workflow_owner.text_input(
+        "Owner",
+        key="project_owner",
+        placeholder="Name / team",
+    )
+    workflow_deadline.text_input(
+        "Deadline",
+        key="project_deadline",
+        placeholder="YYYY-MM-DD",
     )
 
     # If a stale session already had a selected project when this UI version loaded,
@@ -1414,6 +1460,15 @@ with st.container(border=True):
                     existing_project["stage"] = st.session_state.get(
                         "project_stage", "Screening"
                     )
+                    existing_project["next_action"] = (
+                        st.session_state.get("project_next_action") or ""
+                    ).strip()
+                    existing_project["owner"] = (
+                        st.session_state.get("project_owner") or ""
+                    ).strip()
+                    existing_project["deadline"] = (
+                        st.session_state.get("project_deadline") or ""
+                    ).strip()
                     existing_project["updated_at"] = datetime.now(
                         timezone.utc
                     ).isoformat()
@@ -1630,8 +1685,29 @@ if active_project_for_card and active_project_for_card in saved_projects:
         c7.metric("EBITDA", f"{card_ebitda:,.0f}" if card_sales > 0 else "—")
         c8.metric("Stage", card_project.get("stage", "Screening"))
 
+        workflow_bits = []
+        if card_project.get("next_action"):
+            workflow_bits.append(f"Next: {card_project.get('next_action')}")
+        if card_project.get("owner"):
+            workflow_bits.append(f"Owner: {card_project.get('owner')}")
+        if card_project.get("deadline"):
+            workflow_bits.append(f"Deadline: {card_project.get('deadline')}")
+        if workflow_bits:
+            st.caption(" · ".join(workflow_bits))
+
+        if st.button(
+            "Details · map & full analysis",
+            type="primary",
+            use_container_width=True,
+            key=f"project_card_details__{re.sub(r'[^A-Za-z0-9_-]+', '_', active_project_for_card)}",
+        ):
+            st.session_state["_auto_analyze_project"] = active_project_for_card
+            st.session_state["_pending_project_select"] = active_project_for_card
+            st.session_state["_project_flash"] = f"Opening full analysis: {active_project_for_card}"
+            st.rerun()
+
         st.caption(
-            "Run Analyze location below to open the full project analysis: "
+            "Details opens the saved project and refreshes the full location analysis: "
             "Overview, Catchment & demand, Traffic & access, Competition, "
             "Commercial & economics, and Methodology."
         )
@@ -1676,6 +1752,86 @@ if len(comparison_df) >= 2:
         },
     )
 
+    st.markdown("#### Project pipeline")
+    st.caption(
+        "Update the stage after each decision meeting. Cancelled projects stay in the history; "
+        "Delete is reserved for removing a project completely."
+    )
+    header_cols = st.columns([1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7])
+    for col, label in zip(
+        header_cols,
+        ["Project", "Stage", "Next action", "Owner", "Deadline", "Save", "Details"],
+    ):
+        col.caption(label)
+
+    for pipeline_name in comparison_df["Project"].tolist():
+        pipeline_project = saved_projects[pipeline_name]
+        pipeline_key = re.sub(r"[^A-Za-z0-9_-]+", "_", pipeline_name)
+        current_pipeline_stage = pipeline_project.get("stage", "Screening")
+        if current_pipeline_stage not in PROJECT_STAGE_OPTIONS:
+            current_pipeline_stage = "Screening"
+        p_project, p_stage, p_action, p_owner, p_deadline, p_save, p_details = st.columns(
+            [1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7]
+        )
+        p_project.markdown(f"**{pipeline_name}**")
+        pipeline_stage = p_stage.selectbox(
+            "Stage",
+            PROJECT_STAGE_OPTIONS,
+            index=PROJECT_STAGE_OPTIONS.index(current_pipeline_stage),
+            key=f"pipeline_stage__{pipeline_key}",
+            label_visibility="collapsed",
+        )
+        pipeline_action = p_action.text_input(
+            "Next action",
+            value=str(pipeline_project.get("next_action") or ""),
+            key=f"pipeline_action__{pipeline_key}",
+            label_visibility="collapsed",
+        )
+        pipeline_owner = p_owner.text_input(
+            "Owner",
+            value=str(pipeline_project.get("owner") or ""),
+            key=f"pipeline_owner__{pipeline_key}",
+            label_visibility="collapsed",
+        )
+        pipeline_deadline = p_deadline.text_input(
+            "Deadline",
+            value=str(pipeline_project.get("deadline") or ""),
+            key=f"pipeline_deadline__{pipeline_key}",
+            label_visibility="collapsed",
+        )
+        if p_save.button(
+            "Save",
+            key=f"pipeline_save__{pipeline_key}",
+            use_container_width=True,
+        ):
+            pipeline_project["stage"] = pipeline_stage
+            pipeline_project["next_action"] = pipeline_action.strip()
+            pipeline_project["owner"] = pipeline_owner.strip()
+            pipeline_project["deadline"] = pipeline_deadline.strip()
+            pipeline_project["updated_at"] = datetime.now(timezone.utc).isoformat()
+            saved_projects[pipeline_name] = pipeline_project
+            st.session_state["project_library"] = saved_projects
+            try:
+                persist_saved_scenarios(saved_projects)
+            except OSError:
+                pass
+            if st.session_state.get("active_project_name") == pipeline_name:
+                apply_project_to_state(pipeline_name, pipeline_project)
+            st.session_state["_pending_project_select"] = pipeline_name
+            st.session_state["_project_flash"] = f"Workflow updated: {pipeline_name} · {pipeline_stage}"
+            st.rerun()
+
+        if p_details.button(
+            "Details",
+            key=f"pipeline_details__{pipeline_key}",
+            use_container_width=True,
+        ):
+            apply_project_to_state(pipeline_name, pipeline_project)
+            st.session_state["_pending_project_select"] = pipeline_name
+            st.session_state["_auto_analyze_project"] = pipeline_name
+            st.session_state["_project_flash"] = f"Opening full analysis: {pipeline_name}"
+            st.rerun()
+
     chart_data = comparison_df.dropna(subset=["EBITDA"]).set_index("Project")[["EBITDA"]]
     if not chart_data.empty:
         st.markdown("#### EBITDA comparison")
@@ -1693,8 +1849,16 @@ location = st.text_input(
 )
 
 analyze = st.button("Analyze location", type="primary")
+auto_analyze_project = st.session_state.pop("_auto_analyze_project", None)
+auto_analyze = bool(
+    auto_analyze_project
+    and auto_analyze_project == st.session_state.get("active_project_name")
+    and location.strip()
+)
+if auto_analyze:
+    st.info(f"Opening full location analysis for {auto_analyze_project}…")
 
-if analyze:
+if analyze or auto_analyze:
     if not location.strip():
         st.warning("Enter a location first.")
     else:
