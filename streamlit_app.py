@@ -1401,7 +1401,28 @@ with st.container(border=True):
                 st.warning("Enter a location before saving the project.")
             else:
                 if is_new_project:
-                    saved_projects[target_name] = capture_project_from_state(target_name)
+                    new_project = capture_project_from_state(target_name)
+
+                    # If commercial assumptions were entered before Create Project,
+                    # migrate them from the temporary working-copy widgets into the
+                    # newly created project instead of losing them on the rerun.
+                    draft_map = {
+                        "currency": "commercial_currency__working_copy",
+                        "area": "commercial_area__working_copy",
+                        "rent": "commercial_rent__working_copy",
+                        "capex": "commercial_capex__working_copy",
+                        "annual_sales": "commercial_sales__working_copy",
+                        "gross_margin": "commercial_margin__working_copy",
+                        "payroll": "commercial_payroll__working_copy",
+                        "utilities": "commercial_utilities__working_copy",
+                        "logistics": "commercial_logistics__working_copy",
+                        "other_opex": "commercial_other_opex__working_copy",
+                    }
+                    for field, state_key in draft_map.items():
+                        if state_key in st.session_state:
+                            new_project[field] = st.session_state[state_key]
+
+                    saved_projects[target_name] = new_project
                 else:
                     # Workspace Save changes updates project metadata only.
                     # Commercial assumptions are owned by the Commercial Economics
