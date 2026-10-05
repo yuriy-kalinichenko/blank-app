@@ -61,3 +61,28 @@ def test_portfolio_comparison_is_available_for_multiple_projects():
     assert '"#### EBITDA comparison"' in source
     assert "positive EBITDA first" in source
     assert "faster payback" in source
+
+
+def test_workspace_save_preserves_existing_commercial_values():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert "Workspace Save changes updates project metadata only." in source
+    assert 'existing_project = dict(saved_projects.get(target_name, {}))' in source
+    assert 'saved_projects[target_name] = existing_project' in source
+    assert '"Save to project" action' in source
+
+
+def test_karavan_zeroed_commercial_data_has_recovery_baseline():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert "One-time recovery for the Karavan baseline" in source
+    for snippet in [
+        '"area": 4500.0',
+        '"rent": 5.0',
+        '"capex": 2500000.0',
+        '"annual_sales": 5000000.0',
+        '"gross_margin": 50.0',
+        '"payroll": 250000.0',
+        '"utilities": 120000.0',
+        '"logistics": 20000.0',
+        '"other_opex": 100000.0',
+    ]:
+        assert snippet in source
