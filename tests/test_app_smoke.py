@@ -86,3 +86,10 @@ def test_karavan_zeroed_commercial_data_has_recovery_baseline():
         '"other_opex": 100000.0',
     ]:
         assert snippet in source
+
+
+def test_karavan_recovery_handles_partial_zero_state():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert "not all(value > 0 for value in _core_values)" in source
+    assert 'st.session_state["_recovered_project_name"] = _name' in source
+    assert "apply_project_to_state(" in source
