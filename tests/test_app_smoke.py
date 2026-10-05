@@ -48,3 +48,16 @@ def test_commercial_save_rejects_incomplete_required_fields():
     assert '"Commercial data was not saved. Fill the required fields first: "' in source
     for label in ["Store area", "Rent", "CAPEX", "Annual sales", "Gross margin"]:
         assert f'"{label}"' in source
+
+
+def test_portfolio_comparison_is_available_for_multiple_projects():
+    source = APP_PATH.read_text(encoding="utf-8")
+    assert '"### Portfolio comparison"' in source
+    assert '"Commercial priority"' in source
+    assert '"Sales density / m²"' in source
+    assert '"EBITDA"' in source
+    assert '"Occupancy cost, %"' in source
+    assert '"Payback, years"' in source
+    assert '"#### EBITDA comparison"' in source
+    assert "positive EBITDA first" in source
+    assert "faster payback" in source
