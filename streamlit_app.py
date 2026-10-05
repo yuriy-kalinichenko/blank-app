@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-05-v1.1-pipeline"
+BUILD_VERSION = "2026-10-04-v1.0-rc1"
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
