@@ -1439,16 +1439,12 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
 
     city_lat = geocoded["lat"]
     city_lon = geocoded["lon"]
+    # Keep the independent mall layer intentionally small: Nominatim is a
+    # discovery fallback, not a bulk POI API. Two broad requests avoid long
+    # chains of sequential network timeouts while still surfacing major malls.
     queries = [
-        f"mall, {city_query}",
         f"shopping mall, {city_query}",
-        f"shopping centre, {city_query}",
-        f"shopping center, {city_query}",
-        f"retail centre, {city_query}",
-        f"retail center, {city_query}",
         f"retail park, {city_query}",
-        f"outlet centre, {city_query}",
-        f"department store, {city_query}",
     ]
 
     destinations = []
@@ -1475,7 +1471,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
             headers={"User-Agent": USER_AGENT},
         )
         try:
-            with urllib.request.urlopen(req, timeout=12) as response:
+            with urllib.request.urlopen(req, timeout=6) as response:
                 rows = json.loads(response.read().decode("utf-8"))
         except Exception:
             continue
@@ -1780,11 +1776,21 @@ def build_golden_spot_candidates(city_query, max_results=5):
     # This prevents major malls from being crowded out by many ordinary supermarkets.
     anchors = []
     anchor_seen = set()
-    for anchor in (
-        search_large_retail_destinations(city_query)
-        + search_retail_anchors(city_query)
-    ):
-        key = (round(float(anchor["lat"]), 3), round(float(anchor["lon"]), 3))
+    # External discovery must never prevent Golden Spot from running.
+    try:
+        large_anchors = search_large_retail_destinations(city_query)
+    except Exception:
+        large_anchors = []
+    try:
+        broad_anchors = search_retail_anchors(city_query)
+    except Exception:
+        broad_anchors = []
+
+    for anchor in large_anchors + broad_anchors:
+        try:
+            key = (round(float(anchor["lat"]), 3), round(float(anchor["lon"]), 3))
+        except (KeyError, TypeError, ValueError):
+            continue
         if key in anchor_seen:
             continue
         anchor_seen.add(key)
@@ -2580,7 +2586,11 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
             st.warning("Enter a city or area first.")
         else:
             with st.spinner("Screening retail clusters..."):
-                gs_results, gs_meta = build_golden_spot_candidates(gs_city.strip())
+                try:
+                    gs_results, gs_meta = build_golden_spot_candidates(gs_city.strip())
+                except Exception as exc:
+                    st.error(f"Golden Spot screening failed: {exc}")
+                    gs_results, gs_meta = [], None
             st.session_state["golden_spot_results"] = gs_results
             st.session_state["golden_spot_meta"] = gs_meta
 
