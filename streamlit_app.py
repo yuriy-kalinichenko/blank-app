@@ -2334,7 +2334,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         "Jumbo expansion screening: identifiable retail premises, shopping / family traffic, "
         "road access and nearby parking. A mapped venue is not a confirmed vacant unit."
     )
-    st.caption("Jumbo screening · candidates / traffic / context · 20 km · v3")
+    st.caption(f"Jumbo screening · candidates / traffic / context · 20 km · {MODEL_VERSION}")
     if (st.session_state.get("golden_spot_meta") or {}).get("model_version") != MODEL_VERSION:
         st.session_state.pop("golden_spot_results", None)
         st.session_state.pop("golden_spot_meta", None)
