@@ -7,7 +7,7 @@ OSM venue tags establish a place to investigate, never available leasable space.
 import math
 import re
 
-MODEL_VERSION = "jumbo-v3"
+MODEL_VERSION = "jumbo-v4"
 VENUE_TYPES = {"mall", "shopping_centre", "shopping_center", "retail_park", "outlet_centre", "outlet_center"}
 TAG_KEYS = ("shop", "amenity", "building", "landuse", "highway", "railway", "public_transport", "leisure", "tourism", "place", "brand", "operator", "disused", "abandoned", "access", "parking")
 
