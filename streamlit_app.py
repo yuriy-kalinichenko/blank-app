@@ -1431,6 +1431,103 @@ def search_retail_anchors(city_query, limit_per_query=10):
     return anchors[:40]
 
 
+def search_large_retail_destinations(city_query, limit_per_query=15):
+    """Independent discovery path focused only on large named retail destinations."""
+    geocoded = geocode_location(city_query)
+    if not geocoded:
+        return []
+
+    city_lat = geocoded["lat"]
+    city_lon = geocoded["lon"]
+    queries = [
+        f"mall, {city_query}",
+        f"shopping mall, {city_query}",
+        f"shopping centre, {city_query}",
+        f"shopping center, {city_query}",
+        f"retail centre, {city_query}",
+        f"retail center, {city_query}",
+        f"retail park, {city_query}",
+        f"outlet centre, {city_query}",
+        f"department store, {city_query}",
+    ]
+
+    destinations = []
+    seen = set()
+    generic_names = {
+        "mall", "shopping mall", "shopping centre", "shopping center",
+        "retail centre", "retail center", "retail park", "outlet centre",
+        "outlet center", "department store",
+    }
+
+    for query_text in queries:
+        params = urllib.parse.urlencode(
+            {
+                "q": query_text,
+                "format": "jsonv2",
+                "limit": limit_per_query,
+                "addressdetails": 1,
+                "namedetails": 1,
+                "extratags": 1,
+            }
+        )
+        req = urllib.request.Request(
+            f"{NOMINATIM_URL}?{params}",
+            headers={"User-Agent": USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as response:
+                rows = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            continue
+
+        for item in rows:
+            try:
+                d_lat = float(item["lat"])
+                d_lon = float(item["lon"])
+            except Exception:
+                continue
+
+            d_city = distance_km(city_lat, city_lon, d_lat, d_lon)
+            if d_city is None or d_city > 30:
+                continue
+
+            namedetails = item.get("namedetails") or {}
+            display = item.get("display_name") or ""
+            name = (
+                namedetails.get("name:en")
+                or namedetails.get("name")
+                or display.split(",")[0].strip()
+            )
+            if not name or name.casefold() in generic_names:
+                continue
+
+            key = (round(d_lat, 3), round(d_lon, 3))
+            if key in seen:
+                continue
+            seen.add(key)
+
+            raw_kind = (item.get("type") or item.get("class") or "mall").lower()
+            extra = item.get("extratags") or {}
+            kind = (
+                extra.get("shop")
+                or extra.get("building")
+                or extra.get("landuse")
+                or raw_kind
+            )
+            destinations.append(
+                {
+                    "name": name,
+                    "display_name": display or name,
+                    "lat": d_lat,
+                    "lon": d_lon,
+                    "kind": str(kind).lower(),
+                    "discovery_source": "large-retail-search",
+                }
+            )
+
+    return destinations[:60]
+
+
 def golden_format_suitability(anchor_kind, retail_count, named_count=0):
     """Return a transparent 0-15 format-fit score for a large-format Jumbo store."""
     kind = (anchor_kind or "").lower()
@@ -1679,7 +1776,20 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
     # Route B: independent named-anchor discovery. This prevents a temporary
     # Overpass/OSM density failure from incorrectly producing an empty shortlist.
-    anchors = search_retail_anchors(city_query)
+    # Merge broad retail discovery with a separate large-destination search.
+    # This prevents major malls from being crowded out by many ordinary supermarkets.
+    anchors = []
+    anchor_seen = set()
+    for anchor in (
+        search_large_retail_destinations(city_query)
+        + search_retail_anchors(city_query)
+    ):
+        key = (round(float(anchor["lat"]), 3), round(float(anchor["lon"]), 3))
+        if key in anchor_seen:
+            continue
+        anchor_seen.add(key)
+        anchors.append(anchor)
+
     for anchor in anchors:
         a_lat = anchor["lat"]
         a_lon = anchor["lon"]
@@ -1792,7 +1902,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "reasons": reasons,
                 "confidence": confidence,
                 "screening_status": investability["status"],
-                "source": "named-anchor",
+                "source": anchor.get("discovery_source", "named-anchor"),
             }
         )
 
