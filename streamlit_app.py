@@ -1388,7 +1388,6 @@ def search_retail_anchors(city_query, limit_per_query=10):
                             f'{geocoded["bbox"]["west"]},{geocoded["bbox"]["north"]},'
                             f'{geocoded["bbox"]["east"]},{geocoded["bbox"]["south"]}'
                         ),
-                        "bounded": 1,
                     }
                     if geocoded.get("bbox")
                     else {}
@@ -1495,7 +1494,6 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                             f'{geocoded["bbox"]["west"]},{geocoded["bbox"]["north"]},'
                             f'{geocoded["bbox"]["east"]},{geocoded["bbox"]["south"]}'
                         ),
-                        "bounded": 1,
                     }
                     if geocoded.get("bbox")
                     else {}
