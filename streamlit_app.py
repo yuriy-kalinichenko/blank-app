@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-06-v1.0-rc2"
+BUILD_VERSION = "2026-10-04-v1.0-rc1"
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
@@ -1385,6 +1385,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
             candidates.append(
                 {
                     "label": label,
+                    "address": f"{center_lat:.6f}, {center_lon:.6f}",
                     "lat": center_lat,
                     "lon": center_lon,
                     "score": round(score, 1),
@@ -1447,6 +1448,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
         candidates.append(
             {
                 "label": anchor["name"],
+                "address": anchor.get("display_name") or anchor["name"],
                 "lat": a_lat,
                 "lon": a_lon,
                 "score": round(score, 1),
@@ -2133,6 +2135,62 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
 
     if gs_results:
         st.markdown("#### Recommended shortlist")
+
+        st.markdown("##### Golden Spot map")
+        map_rows = []
+        for idx, spot in enumerate(gs_results, start=1):
+            map_rows.append(
+                {
+                    "rank": idx,
+                    "name": spot.get("label") or f"Golden Spot #{idx}",
+                    "address": spot.get("address") or "",
+                    "golden_score": float(spot.get("score") or 0),
+                    "confidence": spot.get("confidence") or "",
+                    "lat": float(spot["lat"]),
+                    "lon": float(spot["lon"]),
+                }
+            )
+        gs_map_df = pd.DataFrame(map_rows)
+        if not gs_map_df.empty:
+            map_layer = pdk.Layer(
+                "ScatterplotLayer",
+                data=gs_map_df,
+                get_position="[lon, lat]",
+                get_radius=180,
+                pickable=True,
+                auto_highlight=True,
+            )
+            label_layer = pdk.Layer(
+                "TextLayer",
+                data=gs_map_df,
+                get_position="[lon, lat]",
+                get_text="rank",
+                get_size=16,
+                get_alignment_baseline="'center'",
+                pickable=False,
+            )
+            st.pydeck_chart(
+                pdk.Deck(
+                    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+                    initial_view_state=pdk.ViewState(
+                        latitude=float(gs_map_df["lat"].mean()),
+                        longitude=float(gs_map_df["lon"].mean()),
+                        zoom=11,
+                        pitch=0,
+                    ),
+                    layers=[map_layer, label_layer],
+                    tooltip={
+                        "html": (
+                            "<b>#{rank} {name}</b><br/>"
+                            "{address}<br/>"
+                            "Golden Score: {golden_score}<br/>"
+                            "Confidence: {confidence}"
+                        ),
+                        "style": {"backgroundColor": "white", "color": "black"},
+                    },
+                ),
+                use_container_width=True,
+            )
         for idx, spot in enumerate(gs_results, start=1):
             with st.container(border=True):
                 a, b, c1, d = st.columns([1.7, 0.55, 0.6, 0.65])
