@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v1.0-rc1"
+BUILD_VERSION = "2026-10-06-golden-spot-runtime-fix2"
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
@@ -2568,6 +2568,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         "City-level screening for the strongest retail zones. This is a shortlist tool, "
         "not a replacement for full site due diligence."
     )
+    st.caption(f"Runtime build: {BUILD_VERSION}")
     gs_left, gs_right = st.columns([1.6, 0.8])
     gs_city = gs_left.text_input(
         "City / area",
@@ -2582,14 +2583,16 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
     )
 
     if gs_run:
+        st.session_state["golden_spot_last_click"] = datetime.now(timezone.utc).isoformat()
         if not gs_city.strip():
             st.warning("Enter a city or area first.")
         else:
+            st.info("Golden Spot request received. Starting screening...")
             with st.spinner("Screening retail clusters..."):
                 try:
                     gs_results, gs_meta = build_golden_spot_candidates(gs_city.strip())
                 except Exception as exc:
-                    st.error(f"Golden Spot screening failed: {exc}")
+                    st.error(f"Golden Spot screening failed: {type(exc).__name__}: {exc}")
                     gs_results, gs_meta = [], None
             st.session_state["golden_spot_results"] = gs_results
             st.session_state["golden_spot_meta"] = gs_meta
