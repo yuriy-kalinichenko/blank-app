@@ -124,10 +124,24 @@ def geocode_location(query):
     if not data:
         return None
     item = data[0]
+    bbox = item.get("boundingbox") or []
+    parsed_bbox = None
+    if len(bbox) == 4:
+        try:
+            # Nominatim order: south, north, west, east.
+            parsed_bbox = {
+                "south": float(bbox[0]),
+                "north": float(bbox[1]),
+                "west": float(bbox[2]),
+                "east": float(bbox[3]),
+            }
+        except (TypeError, ValueError):
+            parsed_bbox = None
     return {
         "lat": float(item["lat"]),
         "lon": float(item["lon"]),
         "display_name": item.get("display_name", query),
+        "bbox": parsed_bbox,
     }
 
 
@@ -1368,6 +1382,17 @@ def search_retail_anchors(city_query, limit_per_query=10):
                 "limit": limit_per_query,
                 "addressdetails": 1,
                 "namedetails": 1,
+                **(
+                    {
+                        "viewbox": (
+                            f'{geocoded["bbox"]["west"]},{geocoded["bbox"]["north"]},'
+                            f'{geocoded["bbox"]["east"]},{geocoded["bbox"]["south"]}'
+                        ),
+                        "bounded": 1,
+                    }
+                    if geocoded.get("bbox")
+                    else {}
+                ),
             }
         )
         req = urllib.request.Request(
@@ -1387,7 +1412,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
             except Exception:
                 continue
 
-            if distance_km(city_lat, city_lon, a_lat, a_lon) > 25:
+            if distance_km(city_lat, city_lon, a_lat, a_lon) > 15:
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1428,7 +1453,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
             distance_km(city_lat, city_lon, a["lat"], a["lon"]) or 0,
         )
     )
-    return anchors[:40]
+    return anchors[:80]
 
 
 def search_large_retail_destinations(city_query, limit_per_query=15):
@@ -1464,6 +1489,17 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                 "addressdetails": 1,
                 "namedetails": 1,
                 "extratags": 1,
+                **(
+                    {
+                        "viewbox": (
+                            f'{geocoded["bbox"]["west"]},{geocoded["bbox"]["north"]},'
+                            f'{geocoded["bbox"]["east"]},{geocoded["bbox"]["south"]}'
+                        ),
+                        "bounded": 1,
+                    }
+                    if geocoded.get("bbox")
+                    else {}
+                ),
             }
         )
         req = urllib.request.Request(
@@ -1484,7 +1520,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                 continue
 
             d_city = distance_km(city_lat, city_lon, d_lat, d_lon)
-            if d_city is None or d_city > 30:
+            if d_city is None or d_city > 15:
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1521,7 +1557,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                 }
             )
 
-    return destinations[:60]
+    return destinations[:80]
 
 
 def golden_format_suitability(anchor_kind, retail_count, named_count=0):
