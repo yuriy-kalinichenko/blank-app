@@ -1331,10 +1331,68 @@ def search_retail_anchors(city_query, limit_per_query=4):
                     "display_name": display,
                     "lat": lat,
                     "lon": lon,
+                    "kind": (item.get("type") or item.get("class") or "retail").lower(),
                 }
             )
     return anchors
 
+
+
+def golden_format_suitability(anchor_kind, retail_count, named_count=0):
+    """Return a transparent 0-15 format-fit score for a large-format Jumbo store."""
+    kind = (anchor_kind or "").lower()
+    if any(token in kind for token in ("mall", "shopping_centre", "shopping_center", "retail")):
+        base = 12.0
+    elif any(token in kind for token in ("hypermarket", "department_store")):
+        base = 10.0
+    elif "supermarket" in kind:
+        base = 5.0
+    elif "market" in kind or "marketplace" in kind:
+        base = 3.0
+    else:
+        base = 4.0
+    cluster_bonus = min(3.0, retail_count / 6.0 + named_count / 10.0)
+    return min(15.0, base + cluster_bonus)
+
+
+def golden_corridor_score(access_rows):
+    """Return 0-12 score based on major-road / public transport strength."""
+    major_weights = {
+        "motorway": 4.0,
+        "trunk": 3.5,
+        "primary": 2.5,
+        "secondary": 1.5,
+        "tertiary": 0.8,
+        "bus_stop": 0.25,
+    }
+    score = 0.0
+    seen = set()
+    for row in access_rows or []:
+        highway = row.get("highway")
+        railway = row.get("railway")
+        public_transport = row.get("public_transport")
+        signature = (highway, railway, public_transport, row.get("name"))
+        if signature in seen:
+            continue
+        seen.add(signature)
+        if highway in major_weights:
+            score += major_weights[highway]
+        elif railway in {"station", "halt", "subway_entrance"}:
+            score += 1.2
+        elif public_transport == "platform":
+            score += 0.4
+    return min(12.0, score)
+
+
+def golden_distance_penalty(distance_from_city_km, corridor_score, format_score):
+    """Penalize isolated fringe sites, but not strong destination retail corridors."""
+    d = float(distance_from_city_km or 0.0)
+    if d <= 4:
+        return 0.0
+    # Strong corridors / destination formats should not be punished simply for being suburban.
+    protection = min(1.0, (corridor_score + format_score) / 20.0)
+    raw = min(12.0, max(0.0, d - 4.0) * 1.2)
+    return raw * (1.0 - 0.75 * protection)
 
 def build_golden_spot_candidates(city_query, max_results=5):
     """Screen a city for strong retail zones with resilient open-data fallbacks."""
@@ -1405,13 +1463,40 @@ def build_golden_spot_candidates(city_query, max_results=5):
             except Exception:
                 gravity_count = 0
 
-            retail_component = min(40.0, retail_count * 1.6 + named_count * 1.0)
-            access_component = min(20.0, access_count * 1.1)
-            gravity_component = min(20.0, gravity_count * 0.7)
-            base_component = 20.0
-            score = min(
-                95.0,
-                base_component + retail_component + access_component + gravity_component,
+            local_access_rows = []
+            for item in access:
+                a_lat = item.get("lat")
+                a_lon = item.get("lon")
+                if a_lat is None or a_lon is None:
+                    continue
+                if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
+                    local_access_rows.append(item)
+
+            corridor_component = golden_corridor_score(local_access_rows)
+            format_component = golden_format_suitability(
+                "retail_cluster", retail_count, named_count
+            )
+            city_distance_km = distance_km(lat, lon, center_lat, center_lon) or 0.0
+            distance_penalty = golden_distance_penalty(
+                city_distance_km, corridor_component, format_component
+            )
+
+            retail_component = min(30.0, retail_count * 1.15 + named_count * 1.1)
+            access_component = min(13.0, access_count * 0.75)
+            gravity_component = min(15.0, gravity_count * 0.45)
+            base_component = 15.0
+            score = max(
+                0.0,
+                min(
+                    95.0,
+                    base_component
+                    + retail_component
+                    + access_component
+                    + gravity_component
+                    + corridor_component
+                    + format_component
+                    - distance_penalty,
+                ),
             )
             top_names = sorted(bucket["named"])[:3]
             label = (
@@ -1423,6 +1508,9 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 f"{retail_count} retail / commercial objects in the local cluster",
                 f"{access_count} major-road / public-transport access objects within ~1.5 km",
                 f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)",
+                f"Traffic corridor score {corridor_component:.1f}/12",
+                f"Large-format suitability {format_component:.1f}/15",
+                f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}",
             ]
             if top_names:
                 reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
@@ -1438,6 +1526,10 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     "score_retail": round(retail_component, 1),
                     "score_access": round(access_component, 1),
                     "score_gravity": round(gravity_component, 1),
+                    "score_corridor": round(corridor_component, 1),
+                    "score_format": round(format_component, 1),
+                    "score_penalty": round(distance_penalty, 1),
+                    "distance_city_km": round(city_distance_km, 1),
                     "retail_count": retail_count,
                     "access_count": access_count,
                     "gravity_count": gravity_count,
@@ -1485,13 +1577,31 @@ def build_golden_spot_candidates(city_query, max_results=5):
         except Exception:
             gravity_count = 0
 
-        retail_component = min(38.0, retail_count * 1.5)
-        access_component = min(20.0, access_count * 1.1)
-        gravity_component = min(22.0, gravity_count * 0.75)
-        base_component = 20.0
-        score = min(
-            95.0,
-            base_component + retail_component + access_component + gravity_component,
+        corridor_component = golden_corridor_score(local_access)
+        format_component = golden_format_suitability(
+            anchor.get("kind"), retail_count, 1
+        )
+        city_distance_km = distance_km(lat, lon, a_lat, a_lon) or 0.0
+        distance_penalty = golden_distance_penalty(
+            city_distance_km, corridor_component, format_component
+        )
+
+        retail_component = min(30.0, retail_count * 1.2)
+        access_component = min(13.0, access_count * 0.75)
+        gravity_component = min(15.0, gravity_count * 0.45)
+        base_component = 15.0
+        score = max(
+            0.0,
+            min(
+                95.0,
+                base_component
+                + retail_component
+                + access_component
+                + gravity_component
+                + corridor_component
+                + format_component
+                - distance_penalty,
+            ),
         )
         confidence = "Medium" if retail_count >= 4 else "Low"
         reasons = [f"Named retail anchor: {anchor['name']}"]
@@ -1503,6 +1613,11 @@ def build_golden_spot_candidates(city_query, max_results=5):
             reasons.append(f"{access_count} mapped access / transport objects within ~1.5 km")
         reasons.append(
             f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)"
+        )
+        reasons.append(f"Traffic corridor score {corridor_component:.1f}/12")
+        reasons.append(f"Large-format suitability {format_component:.1f}/15")
+        reasons.append(
+            f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}"
         )
 
         candidates.append(
@@ -1516,6 +1631,10 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "score_retail": round(retail_component, 1),
                 "score_access": round(access_component, 1),
                 "score_gravity": round(gravity_component, 1),
+                "score_corridor": round(corridor_component, 1),
+                "score_format": round(format_component, 1),
+                "score_penalty": round(distance_penalty, 1),
+                "distance_city_km": round(city_distance_km, 1),
                 "retail_count": retail_count,
                 "access_count": access_count,
                 "gravity_count": gravity_count,
@@ -2280,7 +2399,10 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                     f"Base {spot.get('score_base', 0):.1f} · "
                     f"Retail {spot.get('score_retail', 0):.1f} · "
                     f"Access {spot.get('score_access', 0):.1f} · "
-                    f"City Gravity {spot.get('score_gravity', 0):.1f}"
+                    f"City Gravity {spot.get('score_gravity', 0):.1f} · "
+                    f"Corridor {spot.get('score_corridor', 0):.1f} · "
+                    f"Format {spot.get('score_format', 0):.1f} · "
+                    f"Penalty −{spot.get('score_penalty', 0):.1f}"
                 )
                 for reason in spot["reasons"]:
                     st.write("• " + reason)
