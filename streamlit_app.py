@@ -2312,7 +2312,7 @@ if len(comparison_df) >= 2:
             except OSError:
                 pass
             if st.session_state.get("active_project_name") == pipeline_name:
-                apply_project_to_state(pipeline_name, pipeline_project)
+                st.session_state["_pending_project_load"] = pipeline_name
             st.session_state["_pending_project_select"] = pipeline_name
             st.session_state["_project_flash"] = f"Workflow updated: {pipeline_name} · {pipeline_stage}"
             st.rerun()
@@ -2536,6 +2536,8 @@ if auto_analyze:
     st.info(f"Opening full location analysis for {auto_analyze_project}…")
 
 if analyze or auto_analyze:
+    # A failed new request must never leave an old site's results on screen.
+    st.session_state.pop("analysis", None)
     if not location.strip():
         st.warning("Enter a location first.")
     else:
@@ -2550,13 +2552,13 @@ if analyze or auto_analyze:
                             geo["lat"], geo["lon"]
                         )
                         retail_error = None
-                        st.session_state["last_good_retail"] = retail
-                        st.session_state["last_good_retail_source"] = retail_source
                     except Exception as exc:
-                        retail = st.session_state.get("last_good_retail", [])
-                        retail_source = st.session_state.get("last_good_retail_source", "Cached previous live result") if retail else None
+                        # Provider caches already key successful responses by coordinates.
+                        # Session-wide fallback rows can belong to another site or city.
+                        retail = []
+                        retail_source = None
                         retail_diagnostics = [str(exc)]
-                        retail_error = str(exc) if not retail else None
+                        retail_error = str(exc)
 
                     access = []
                     access_error = None
@@ -2566,16 +2568,11 @@ if analyze or auto_analyze:
                         access, access_source, access_diagnostics = fetch_access_with_fallback(
                             geo["lat"], geo["lon"]
                         )
-                        st.session_state["last_good_access"] = access
-                        st.session_state["last_good_access_source"] = access_source
                     except Exception as exc:
-                        access = st.session_state.get("last_good_access", [])
-                        access_source = st.session_state.get(
-                            "last_good_access_source",
-                            "Cached previous live result" if access else None,
-                        )
+                        access = []
+                        access_source = None
                         access_diagnostics = [str(exc)]
-                        access_error = str(exc) if not access else None
+                        access_error = str(exc)
 
                     drive_time_error = None
                     drive_time_mode = "live"
@@ -2813,7 +2810,8 @@ if analysis:
 
     retail_data_ok = not analysis.get("retail_error")
     access_data_ok = not analysis.get("access_error")
-    access_complete = access_data_ok
+    # Parking comes from the retail provider; both sources are needed for the total.
+    access_complete = access_data_ok and retail_data_ok
     live_modules = (
         2
         + (1 if retail_data_ok else 0)
@@ -3096,7 +3094,7 @@ if analysis:
             )
         else:
             st.warning(
-                "Road/transit data is incomplete in this run. Missing data is shown as 'No data' "
+                "Road/transit or parking data is incomplete in this run. Missing data is shown as 'No data' "
                 "and is not treated as a real zero."
             )
 
@@ -3108,7 +3106,7 @@ if analysis:
                 ["Major-road proximity", road_score if access_data_ok else "No data", 35],
                 ["Road-network choice", network_score if access_data_ok else "No data", 15],
                 ["Public transport", transit_score if access_data_ok else "No data", 25],
-                ["Parking presence", parking_score, 25],
+                ["Parking presence", parking_score if retail_data_ok else "No data", 25],
             ],
             columns=["Access component", "Current points", "Maximum weight"],
         )
