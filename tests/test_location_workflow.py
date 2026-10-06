@@ -36,6 +36,13 @@ def fetch_retail_with_fallback(lat, lon, radius=3000):
 def fetch_access_with_fallback(lat, lon, radius=1500):
     if lat < 45 or st.session_state.get("qa_access_outage"):
         raise RuntimeError("Test access provider unavailable")
+    if st.session_state.get("qa_wide_access"):
+        return [
+            {"name": "Near road", "lat": lat, "lon": lon, "highway": "primary"},
+            {"name": "Near stop", "lat": lat + 0.005, "lon": lon, "highway": "bus_stop"},
+            {"name": "Distant road", "lat": lat + 0.025, "lon": lon, "highway": "primary"},
+            {"name": "Distant stop", "lat": lat + 0.025, "lon": lon, "highway": "bus_stop"},
+        ], "Test access provider", []
     return [{"name": "Kyiv road", "lat": lat, "lon": lon, "highway": "primary"}], "Test access provider", []
 
 def fetch_drive_time_isochrones(*args, **kwargs):
@@ -141,3 +148,12 @@ def test_access_score_is_unknown_when_parking_source_is_missing(app_test):
     analyze(at, "Kyiv")
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Access proxy score"] == "No data"
+
+
+def test_access_metrics_respect_displayed_radius(app_test):
+    at = app_test
+    at.session_state["qa_wide_access"] = True
+    analyze(at, "Kyiv")
+    metrics = {metric.label: metric.value for metric in at.metric}
+    assert metrics["Transit stops / 1.5 km"] == "1"
+    assert metrics["Named major roads / 1.5 km"] == "1"

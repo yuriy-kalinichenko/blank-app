@@ -2774,6 +2774,13 @@ if analysis:
             geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
         )
 
+    # The Map API fallback fetches a wider box to recover complete OSM ways.
+    # Report only representative points inside the radius advertised in the UI.
+    access = [
+        item for item in access
+        if item["distance_km"] is not None and item["distance_km"] <= 1.5
+    ]
+
     major_road_types = {"motorway", "trunk", "primary", "secondary"}
     major_roads = [r for r in access if r.get("highway") in major_road_types]
     transit_stops = [
