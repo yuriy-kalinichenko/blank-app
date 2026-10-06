@@ -4,6 +4,8 @@ import json
 import math
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 import urllib.parse
 import urllib.request
@@ -37,6 +39,27 @@ VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
 BUILD_VERSION = "2026-10-04-v1.0-rc1"
+GOLDEN_SEARCH_RADIUS_KM = 20
+_SCREENING_NETWORK = ContextVar("screening_network", default=None)
+
+
+@contextmanager
+def screening_response(request, timeout, pool):
+    """Bound optional map enrichment across one screening, not once per anchor."""
+    budget = _SCREENING_NETWORK.get()
+    if budget is not None:
+        remaining = budget[pool]
+        if remaining <= 0:
+            budget["limited"].add(pool)
+            raise TimeoutError(f"Screening {pool} time budget exhausted")
+        timeout = min(timeout, remaining)
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            yield response
+    finally:
+        if budget is not None:
+            budget[pool] = max(0.0, budget[pool] - (time.monotonic() - started))
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
@@ -99,7 +122,7 @@ def run_overpass_query(query):
                         method="GET",
                     )
 
-                with urllib.request.urlopen(req, timeout=10) as response:
+                with screening_response(req, timeout=10, pool="overpass") as response:
                     payload = json.loads(response.read().decode("utf-8"))
 
                 if isinstance(payload, dict) and "elements" in payload:
@@ -108,6 +131,9 @@ def run_overpass_query(query):
             except Exception as exc:
                 errors.append(f"{endpoint} {method}: {exc}")
 
+    budget = _SCREENING_NETWORK.get()
+    if budget is not None:
+        budget["limited"].add("overpass")
     raise RuntimeError("All Overpass endpoints failed. " + " | ".join(errors))
 
 
@@ -305,7 +331,7 @@ def fetch_osm_map_elements(lat, lon, radius_m):
                 headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             )
             try:
-                with urllib.request.urlopen(req, timeout=12) as response:
+                with screening_response(req, timeout=12, pool="map") as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 elements = payload.get("elements")
                 if not isinstance(elements, list):
@@ -317,6 +343,9 @@ def fetch_osm_map_elements(lat, lon, radius_m):
             except Exception as exc:
                 tile_errors.append(f"{bbox}: {exc}")
     if not merged:
+        budget = _SCREENING_NETWORK.get()
+        if budget is not None:
+            budget["limited"].add("map")
         raise RuntimeError("OSM Map API tiles returned no elements. " + " | ".join(tile_errors))
     return list(merged.values())
 
@@ -1312,12 +1341,12 @@ def search_retail_anchors(city_query, limit_per_query=10):
     query = f"""
     [out:json][timeout:30];
     (
-      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="mall"];
-      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="department_store"];
-      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="supermarket"];
-      nwr(around:22000,{city_lat},{city_lon})["name"]["building"="retail"];
-      nwr(around:22000,{city_lat},{city_lon})["name"]["landuse"="retail"];
-      nwr(around:22000,{city_lat},{city_lon})["name"]["amenity"="marketplace"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["shop"="mall"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["shop"="department_store"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["shop"="supermarket"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["building"="retail"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["landuse"="retail"];
+      nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{city_lat},{city_lon})["name"]["amenity"="marketplace"];
     );
     out center tags;
     """
@@ -1455,7 +1484,19 @@ def search_retail_anchors(city_query, limit_per_query=10):
     return anchors[:80]
 
 
-def search_large_retail_destinations(city_query, limit_per_query=15):
+def same_retail_destination(first, second):
+    """Match duplicate map representations while preserving distinct nearby malls."""
+    if distance_km(first["lat"], first["lon"], second["lat"], second["lon"]) > 0.15:
+        return False
+    generic = {"shopping", "center", "centre", "mall"}
+    first_words = set(re.findall(r"\w+", first["name"].casefold())) - generic
+    second_words = set(re.findall(r"\w+", second["name"].casefold())) - generic
+    return bool(first_words and second_words) and (
+        first_words <= second_words or second_words <= first_words
+    )
+
+
+def search_large_retail_destinations(city_query, limit_per_query=40):
     """Independent discovery path focused only on large named retail destinations."""
     geocoded = geocode_location(city_query)
     if not geocoded:
@@ -1463,16 +1504,19 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
 
     city_lat = geocoded["lat"]
     city_lon = geocoded["lon"]
-    # Keep the independent mall layer intentionally small: Nominatim is a
-    # discovery fallback, not a bulk POI API. Two broad requests avoid long
-    # chains of sequential network timeouts while still surfacing major malls.
+    # A city-name phrase restricts address matching to that settlement and can
+    # miss suburban malls. Search categories inside the screening area instead.
+    # Nominatim returns best matches, not a complete inventory; Overpass remains
+    # the primary enumeration route. Never add a city-specific list of malls.
+    west, south, east, north = bbox_from_radius(
+        city_lat, city_lon, GOLDEN_SEARCH_RADIUS_KM * 1000
+    )
     queries = [
-        f"shopping mall, {city_query}",
-        f"retail park, {city_query}",
+        "[mall]",
+        "[retail park]",
     ]
 
     destinations = []
-    seen = set()
     generic_names = {
         "mall", "shopping mall", "shopping centre", "shopping center",
         "retail centre", "retail center", "retail park", "outlet centre",
@@ -1484,20 +1528,12 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
             {
                 "q": query_text,
                 "format": "jsonv2",
-                "limit": limit_per_query,
+                "limit": min(40, limit_per_query),
                 "addressdetails": 1,
                 "namedetails": 1,
                 "extratags": 1,
-                **(
-                    {
-                        "viewbox": (
-                            f'{geocoded["bbox"]["west"]},{geocoded["bbox"]["north"]},'
-                            f'{geocoded["bbox"]["east"]},{geocoded["bbox"]["south"]}'
-                        ),
-                    }
-                    if geocoded.get("bbox")
-                    else {}
-                ),
+                "viewbox": f"{west},{north},{east},{south}",
+                "bounded": 1,
             }
         )
         req = urllib.request.Request(
@@ -1505,7 +1541,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
             headers={"User-Agent": USER_AGENT},
         )
         try:
-            with urllib.request.urlopen(req, timeout=6) as response:
+            with urllib.request.urlopen(req, timeout=15) as response:
                 rows = json.loads(response.read().decode("utf-8"))
         except Exception:
             continue
@@ -1518,7 +1554,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                 continue
 
             d_city = distance_km(city_lat, city_lon, d_lat, d_lon)
-            if d_city is None or d_city > 20:
+            if d_city is None or d_city > GOLDEN_SEARCH_RADIUS_KM:
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1526,34 +1562,31 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
             name = (
                 namedetails.get("name:en")
                 or namedetails.get("name")
-                or display.split(",")[0].strip()
+                or item.get("name")
+                or ""
             )
             if not name or name.casefold() in generic_names:
                 continue
-
-            key = (round(d_lat, 3), round(d_lon, 3))
-            if key in seen:
-                continue
-            seen.add(key)
 
             raw_kind = (item.get("type") or item.get("class") or "mall").lower()
             extra = item.get("extratags") or {}
             kind = (
                 extra.get("shop")
-                or extra.get("building")
-                or extra.get("landuse")
-                or raw_kind
+                or (raw_kind if raw_kind in {"mall", "department_store", "supermarket", "retail"}
+                    else extra.get("landuse") or extra.get("building") or raw_kind)
             )
-            destinations.append(
-                {
-                    "name": name,
-                    "display_name": display or name,
-                    "lat": d_lat,
-                    "lon": d_lon,
-                    "kind": str(kind).lower(),
-                    "discovery_source": "large-retail-search",
-                }
-            )
+            destination = {
+                "name": name,
+                "display_name": display or name,
+                "lat": d_lat,
+                "lon": d_lon,
+                "kind": str(kind).lower(),
+                "discovery_source": "large-retail-search",
+                "osm_type": item.get("osm_type"),
+                "osm_id": item.get("osm_id"),
+            }
+            if not any(same_retail_destination(destination, old) for old in destinations):
+                destinations.append(destination)
 
     return destinations[:80]
 
@@ -1646,6 +1679,21 @@ def golden_investability_gate(distance_km_value, gravity_count, format_score, re
     return {"cap": 95.0, "status": "Screening", "reason": ""}
 
 def build_golden_spot_candidates(city_query, max_results=5):
+    # Failed public providers must not cost minutes for every discovered mall.
+    # Context-local budgets reset on each run and leave full site analysis alone.
+    budget = {"overpass": 40.0, "map": 25.0, "limited": set()}
+    token = _SCREENING_NETWORK.set(budget)
+    try:
+        results, meta = _build_golden_spot_candidates(city_query, max_results)
+        if meta is not None:
+            meta = dict(meta)
+            meta["enrichment_limited"] = bool(budget["limited"])
+        return results, meta
+    finally:
+        _SCREENING_NETWORK.reset(token)
+
+
+def _build_golden_spot_candidates(city_query, max_results=5):
     """Screen a city for strong retail zones with resilient open-data fallbacks."""
     geocoded = geocode_location(city_query)
     if not geocoded:
@@ -1809,7 +1857,6 @@ def build_golden_spot_candidates(city_query, max_results=5):
     # Merge broad retail discovery with a separate large-destination search.
     # This prevents major malls from being crowded out by many ordinary supermarkets.
     anchors = []
-    anchor_seen = set()
     # External discovery must never prevent Golden Spot from running.
     try:
         large_anchors = search_large_retail_destinations(city_query)
@@ -1822,12 +1869,13 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
     for anchor in large_anchors + broad_anchors:
         try:
-            key = (round(float(anchor["lat"]), 3), round(float(anchor["lon"]), 3))
+            anchor_distance = distance_km(lat, lon, float(anchor["lat"]), float(anchor["lon"]))
         except (KeyError, TypeError, ValueError):
             continue
-        if key in anchor_seen:
+        if anchor_distance > GOLDEN_SEARCH_RADIUS_KM:
             continue
-        anchor_seen.add(key)
+        if any(same_retail_destination(anchor, old) for old in anchors):
+            continue
         anchors.append(anchor)
 
     for anchor in anchors:
@@ -1978,7 +2026,9 @@ def build_golden_spot_candidates(city_query, max_results=5):
         if len(deduped) >= max_results:
             break
 
-    return deduped, geocoded
+    meta = dict(geocoded)
+    meta["discovered_anchors"] = anchors
+    return deduped, meta
 
 
 for state_key, state_value in BASE_ECON_STATE.items():
@@ -2602,7 +2652,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         "City-level screening for the strongest retail zones. This is a shortlist tool, "
         "not a replacement for full site due diligence."
     )
-    st.caption("Runtime diagnostics active")
+    st.caption("Discovery: geographic search · 20 km · v2")
     gs_left, gs_right = st.columns([1.6, 0.8])
     gs_city = gs_left.text_input(
         "City / area",
@@ -2636,9 +2686,41 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
 
     if gs_meta:
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)}")
+        if gs_meta.get("enrichment_limited"):
+            st.warning(
+                "Some map enrichment was unavailable or exceeded the screening time budget. "
+                "Missing retail, access or City Gravity data is not evidence of no demand; "
+                "the shortlist is provisional."
+            )
+        discovered = gs_meta.get("discovered_anchors") or []
+        if discovered:
+            with st.expander(f"Discovered retail destinations · {len(discovered)}", expanded=True):
+                st.caption(
+                    "All named destinations found within the search area, before top-5 ranking. "
+                    "Nearby destinations may share one shortlisted zone. Open-map coverage is not exhaustive."
+                )
+                st.dataframe(
+                    pd.DataFrame([
+                        {
+                            "Destination": anchor["name"],
+                            "Type": anchor.get("kind", "retail"),
+                            "Distance, km": round(distance_km(
+                                gs_meta["lat"], gs_meta["lon"], anchor["lat"], anchor["lon"]
+                            ), 1),
+                            "Shortlisted zone": next((
+                                f"#{idx}" for idx, spot in enumerate(gs_results, 1)
+                                if distance_km(anchor["lat"], anchor["lon"], spot["lat"], spot["lon"]) <= 0.8
+                            ), "Outside top 5"),
+                            "Address": anchor.get("display_name", anchor["name"]),
+                        }
+                        for anchor in discovered
+                    ]),
+                    hide_index=True,
+                    use_container_width=True,
+                )
 
     if gs_results:
-        st.markdown("#### Recommended shortlist")
+        st.markdown("#### Provisional shortlist" if gs_meta.get("enrichment_limited") else "#### Recommended shortlist")
 
         st.markdown("##### Golden Spot map")
         map_rows = []
