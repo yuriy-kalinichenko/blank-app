@@ -1245,6 +1245,107 @@ def distance_km(lat1, lon1, lat2, lon2):
     return 2 * radius * math.asin(math.sqrt(a))
 
 
+def build_golden_spot_candidates(city_query, max_results=5):
+    """Screen a city for strong retail clusters using OSM retail density and access context."""
+    geocoded = geocode_location(city_query)
+    if not geocoded:
+        return [], None
+
+    lat = geocoded["lat"]
+    lon = geocoded["lon"]
+
+    try:
+        retail = fetch_nearby_retail(lat, lon, radius=12000)
+    except Exception:
+        try:
+            retail = fetch_osm_map_retail(lat, lon, radius=6000)
+        except Exception:
+            retail = []
+
+    try:
+        access = fetch_access_context(lat, lon, radius=6000)
+    except Exception:
+        access = []
+
+    usable = [
+        row for row in retail
+        if row.get("lat") is not None and row.get("lon") is not None
+    ]
+    if not usable:
+        return [], geocoded
+
+    # Group nearby retail objects into coarse screening clusters.
+    buckets = {}
+    for row in usable:
+        b_lat = round(float(row["lat"]), 2)
+        b_lon = round(float(row["lon"]), 2)
+        key = (b_lat, b_lon)
+        bucket = buckets.setdefault(
+            key,
+            {"lat": [], "lon": [], "retail": [], "named": set()},
+        )
+        bucket["lat"].append(float(row["lat"]))
+        bucket["lon"].append(float(row["lon"]))
+        bucket["retail"].append(row)
+        name = (row.get("name") or "").strip()
+        if name and name.lower() != "unnamed":
+            bucket["named"].add(name)
+
+    candidates = []
+    for bucket in buckets.values():
+        center_lat = sum(bucket["lat"]) / len(bucket["lat"])
+        center_lon = sum(bucket["lon"]) / len(bucket["lon"])
+        retail_count = len(bucket["retail"])
+        named_count = len(bucket["named"])
+
+        access_count = 0
+        for item in access:
+            a_lat = item.get("lat")
+            a_lon = item.get("lon")
+            if a_lat is None or a_lon is None:
+                continue
+            if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
+                access_count += 1
+
+        # Transparent screening score; deliberately capped below 100 because
+        # traffic, rent and income data are not yet included.
+        score = min(
+            92.0,
+            45.0
+            + min(retail_count, 20) * 1.8
+            + min(named_count, 10) * 1.2
+            + min(access_count, 15) * 0.8,
+        )
+
+        top_names = sorted(bucket["named"])[:3]
+        label = " / ".join(top_names) if top_names else f"Retail cluster {center_lat:.3f}, {center_lon:.3f}"
+        reasons = [
+            f"{retail_count} retail / commercial objects in the local cluster",
+            f"{access_count} major-road / public-transport access objects within ~1.5 km",
+        ]
+        if top_names:
+            reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
+
+        candidates.append(
+            {
+                "label": label,
+                "lat": center_lat,
+                "lon": center_lon,
+                "score": round(score, 1),
+                "retail_count": retail_count,
+                "access_count": access_count,
+                "reasons": reasons,
+                "confidence": "Medium" if retail_count >= 5 else "Low",
+            }
+        )
+
+    candidates.sort(
+        key=lambda item: (item["score"], item["retail_count"], item["access_count"]),
+        reverse=True,
+    )
+    return candidates[:max_results], geocoded
+
+
 for state_key, state_value in BASE_ECON_STATE.items():
     if state_key not in st.session_state:
         st.session_state[state_key] = state_value
@@ -1330,6 +1431,13 @@ if pending_load and pending_load in saved_projects:
 if st.session_state.pop("_pending_new_project", False):
     reset_project_state()
     st.session_state["_pending_project_select"] = PROJECT_SELECTOR_PLACEHOLDER
+
+golden_pending_name = st.session_state.pop("_golden_pending_name", None)
+golden_pending_location = st.session_state.pop("_golden_pending_location", None)
+if golden_pending_name:
+    st.session_state["project_name_input"] = golden_pending_name
+if golden_pending_location:
+    st.session_state["location_query"] = golden_pending_location
 
 pending_select = st.session_state.pop("_pending_project_select", None)
 if pending_select is not None:
@@ -1852,6 +1960,74 @@ else:
         "Portfolio comparison will appear after at least two projects are saved. "
         "Add the next location and its commercial assumptions to start comparing."
     )
+
+
+with st.expander("🌟 Golden Spot workspace", expanded=False):
+    st.caption(
+        "City-level screening for the strongest retail zones. This is a shortlist tool, "
+        "not a replacement for full site due diligence."
+    )
+    gs_left, gs_right = st.columns([1.6, 0.8])
+    gs_city = gs_left.text_input(
+        "City / area",
+        key="golden_spot_city",
+        placeholder="Example: Zhytomyr, Ukraine",
+    )
+    gs_run = gs_right.button(
+        "Find Golden Spots",
+        type="primary",
+        use_container_width=True,
+        key="golden_spot_run",
+    )
+
+    if gs_run:
+        if not gs_city.strip():
+            st.warning("Enter a city or area first.")
+        else:
+            with st.spinner("Screening retail clusters..."):
+                gs_results, gs_meta = build_golden_spot_candidates(gs_city.strip())
+            st.session_state["golden_spot_results"] = gs_results
+            st.session_state["golden_spot_meta"] = gs_meta
+
+    gs_results = st.session_state.get("golden_spot_results") or []
+    gs_meta = st.session_state.get("golden_spot_meta")
+
+    if gs_meta:
+        st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)}")
+
+    if gs_results:
+        st.markdown("#### Recommended shortlist")
+        for idx, spot in enumerate(gs_results, start=1):
+            with st.container(border=True):
+                a, b, c1, d = st.columns([1.7, 0.55, 0.6, 0.65])
+                a.markdown(f"**#{idx} · {spot['label']}**")
+                b.metric("Golden Score", f"{spot['score']:.1f}/100")
+                c1.metric("Confidence", spot["confidence"])
+                d.metric("Retail cluster", spot["retail_count"])
+
+                for reason in spot["reasons"]:
+                    st.write("• " + reason)
+
+                st.caption(
+                    "Screening score currently uses retail clustering and access context. "
+                    "Traffic, income, rent, competition quality and cannibalization will be added as the model evolves."
+                )
+
+                if st.button(
+                    "Create project from this spot",
+                    key=f"golden_create__{idx}",
+                    use_container_width=True,
+                ):
+                    spot_name = f"{gs_city.strip()} · Golden Spot #{idx}"
+                    st.session_state["_pending_new_project"] = True
+                    st.session_state["_golden_pending_name"] = spot_name
+                    st.session_state["_golden_pending_location"] = (
+                        f"{spot['lat']:.6f}, {spot['lon']:.6f}"
+                    )
+                    st.rerun()
+    elif gs_meta is not None:
+        st.info("No reliable shortlist found from the available open-map data for this search.")
+
 
 location = st.text_input(
     "Enter address or shopping center",
