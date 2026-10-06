@@ -1346,9 +1346,9 @@ def golden_format_suitability(anchor_kind, retail_count, named_count=0):
     elif any(token in kind for token in ("hypermarket", "department_store")):
         base = 10.0
     elif "supermarket" in kind:
-        base = 5.0
+        base = 3.5
     elif "market" in kind or "marketplace" in kind:
-        base = 3.0
+        base = 1.5
     else:
         base = 4.0
     cluster_bonus = min(3.0, retail_count / 6.0 + named_count / 10.0)
@@ -1385,14 +1385,19 @@ def golden_corridor_score(access_rows):
 
 
 def golden_distance_penalty(distance_from_city_km, corridor_score, format_score):
-    """Penalize isolated fringe sites, but not strong destination retail corridors."""
+    """Penalize fringe sites unless distance is justified by a true destination-retail format."""
     d = float(distance_from_city_km or 0.0)
     if d <= 4:
         return 0.0
-    # Strong corridors / destination formats should not be punished simply for being suburban.
-    protection = min(1.0, (corridor_score + format_score) / 20.0)
-    raw = min(12.0, max(0.0, d - 4.0) * 1.2)
-    return raw * (1.0 - 0.75 * protection)
+
+    # Corridor alone is not enough. Protection only becomes strong when
+    # large-format suitability is also high.
+    corridor_factor = min(1.0, float(corridor_score or 0.0) / 12.0)
+    format_factor = min(1.0, float(format_score or 0.0) / 15.0)
+    protection = corridor_factor * format_factor
+
+    raw = min(20.0, max(0.0, d - 4.0) * 1.6)
+    return raw * (1.0 - 0.65 * protection)
 
 def build_golden_spot_candidates(city_query, max_results=5):
     """Screen a city for strong retail zones with resilient open-data fallbacks."""
@@ -1480,6 +1485,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
             distance_penalty = golden_distance_penalty(
                 city_distance_km, corridor_component, format_component
             )
+            weak_gravity_penalty = 4.0 if gravity_count == 0 and city_distance_km > 8 else 0.0
 
             retail_component = min(30.0, retail_count * 1.15 + named_count * 1.1)
             access_component = min(13.0, access_count * 0.75)
@@ -1495,7 +1501,8 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     + gravity_component
                     + corridor_component
                     + format_component
-                    - distance_penalty,
+                    - distance_penalty
+                    - weak_gravity_penalty,
                 ),
             )
             top_names = sorted(bucket["named"])[:3]
@@ -1511,6 +1518,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 f"Traffic corridor score {corridor_component:.1f}/12",
                 f"Large-format suitability {format_component:.1f}/15",
                 f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}",
+                f"Weak-gravity penalty {weak_gravity_penalty:.1f}",
             ]
             if top_names:
                 reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
@@ -1528,7 +1536,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     "score_gravity": round(gravity_component, 1),
                     "score_corridor": round(corridor_component, 1),
                     "score_format": round(format_component, 1),
-                    "score_penalty": round(distance_penalty, 1),
+                    "score_penalty": round(distance_penalty + weak_gravity_penalty, 1),
                     "distance_city_km": round(city_distance_km, 1),
                     "retail_count": retail_count,
                     "access_count": access_count,
@@ -1585,6 +1593,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
         distance_penalty = golden_distance_penalty(
             city_distance_km, corridor_component, format_component
         )
+        weak_gravity_penalty = 4.0 if gravity_count == 0 and city_distance_km > 8 else 0.0
 
         retail_component = min(30.0, retail_count * 1.2)
         access_component = min(13.0, access_count * 0.75)
@@ -1600,7 +1609,8 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 + gravity_component
                 + corridor_component
                 + format_component
-                - distance_penalty,
+                - distance_penalty
+                - weak_gravity_penalty,
             ),
         )
         confidence = "Medium" if retail_count >= 4 else "Low"
@@ -1619,6 +1629,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
         reasons.append(
             f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}"
         )
+        reasons.append(f"Weak-gravity penalty {weak_gravity_penalty:.1f}")
 
         candidates.append(
             {
@@ -1633,7 +1644,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "score_gravity": round(gravity_component, 1),
                 "score_corridor": round(corridor_component, 1),
                 "score_format": round(format_component, 1),
-                "score_penalty": round(distance_penalty, 1),
+                "score_penalty": round(distance_penalty + weak_gravity_penalty, 1),
                 "distance_city_km": round(city_distance_km, 1),
                 "retail_count": retail_count,
                 "access_count": access_count,
