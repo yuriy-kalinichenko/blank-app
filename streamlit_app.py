@@ -1283,24 +1283,91 @@ def distance_km(lat1, lon1, lat2, lon2):
     return 2 * radius * math.asin(math.sqrt(a))
 
 
-def search_retail_anchors(city_query, limit_per_query=4):
-    """Find named retail anchors via Nominatim as a resilient Golden Spot fallback."""
+def search_retail_anchors(city_query, limit_per_query=10):
+    """Discover named retail anchors across the city before scoring them."""
+    geocoded = geocode_location(city_query)
+    if not geocoded:
+        return []
+
+    city_lat = geocoded["lat"]
+    city_lon = geocoded["lon"]
+    anchors = []
+    seen = set()
+
+    # Primary route: enumerate named retail destinations from OSM/Overpass.
+    query = f"""
+    [out:json][timeout:30];
+    (
+      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="mall"];
+      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="department_store"];
+      nwr(around:22000,{city_lat},{city_lon})["name"]["shop"="supermarket"];
+      nwr(around:22000,{city_lat},{city_lon})["name"]["building"="retail"];
+      nwr(around:22000,{city_lat},{city_lon})["name"]["landuse"="retail"];
+      nwr(around:22000,{city_lat},{city_lon})["name"]["amenity"="marketplace"];
+    );
+    out center tags;
+    """
+    try:
+        payload = run_overpass_query(query)
+        for element in payload.get("elements", []):
+            tags = element.get("tags") or {}
+            name = (tags.get("name:en") or tags.get("name") or "").strip()
+            point_lat = element.get("lat") or element.get("center", {}).get("lat")
+            point_lon = element.get("lon") or element.get("center", {}).get("lon")
+            if not name or point_lat is None or point_lon is None:
+                continue
+
+            kind = (
+                tags.get("shop")
+                or tags.get("building")
+                or tags.get("landuse")
+                or tags.get("amenity")
+                or "retail"
+            )
+            key = (round(float(point_lat), 3), round(float(point_lon), 3), name.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            anchors.append(
+                {
+                    "name": name,
+                    "display_name": name,
+                    "lat": float(point_lat),
+                    "lon": float(point_lon),
+                    "kind": str(kind).lower(),
+                }
+            )
+    except Exception:
+        pass
+
+    # Secondary route: broader geocoder discovery for places missing OSM tags.
     queries = [
         f"shopping mall, {city_query}",
         f"shopping centre, {city_query}",
+        f"department store, {city_query}",
         f"hypermarket, {city_query}",
         f"retail park, {city_query}",
         f"market, {city_query}",
     ]
-    anchors = []
-    seen = set()
-    for query in queries:
+    generic_names = {
+        "shopping mall",
+        "shopping centre",
+        "shopping center",
+        "department store",
+        "hypermarket",
+        "retail park",
+        "market",
+        "marketplace",
+    }
+
+    for query_text in queries:
         params = urllib.parse.urlencode(
             {
-                "q": query,
+                "q": query_text,
                 "format": "jsonv2",
                 "limit": limit_per_query,
                 "addressdetails": 1,
+                "namedetails": 1,
             }
         )
         req = urllib.request.Request(
@@ -1315,27 +1382,53 @@ def search_retail_anchors(city_query, limit_per_query=4):
 
         for item in data:
             try:
-                lat = float(item["lat"])
-                lon = float(item["lon"])
+                a_lat = float(item["lat"])
+                a_lon = float(item["lon"])
             except Exception:
                 continue
-            display = item.get("display_name") or query
-            # ~100 m dedupe is enough for screening anchors.
-            key = (round(lat, 3), round(lon, 3))
+
+            if distance_km(city_lat, city_lon, a_lat, a_lon) > 25:
+                continue
+
+            namedetails = item.get("namedetails") or {}
+            display = item.get("display_name") or ""
+            name = (
+                namedetails.get("name:en")
+                or namedetails.get("name")
+                or display.split(",")[0].strip()
+            )
+            if not name or name.casefold() in generic_names:
+                continue
+
+            key = (round(a_lat, 3), round(a_lon, 3), name.casefold())
             if key in seen:
                 continue
             seen.add(key)
             anchors.append(
                 {
-                    "name": display.split(",")[0].strip() or "Retail anchor",
-                    "display_name": display,
-                    "lat": lat,
-                    "lon": lon,
+                    "name": name,
+                    "display_name": display or name,
+                    "lat": a_lat,
+                    "lon": a_lon,
                     "kind": (item.get("type") or item.get("class") or "retail").lower(),
                 }
             )
-    return anchors
 
+    # Prefer true destination-retail formats, but never hard-code a named mall.
+    kind_priority = {
+        "mall": 0,
+        "department_store": 1,
+        "retail": 2,
+        "supermarket": 3,
+        "marketplace": 4,
+    }
+    anchors.sort(
+        key=lambda a: (
+            kind_priority.get(str(a.get("kind") or "").lower(), 5),
+            distance_km(city_lat, city_lon, a["lat"], a["lon"]) or 0,
+        )
+    )
+    return anchors[:40]
 
 
 def golden_format_suitability(anchor_kind, retail_count, named_count=0):
