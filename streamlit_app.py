@@ -1705,9 +1705,15 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
     # De-duplicate candidates that represent the same physical area.
     deduped = []
+    status_priority = {
+        "Screening": 2,
+        "Needs demand proof": 1,
+        "Watchlist": 0,
+    }
     for candidate in sorted(
         candidates,
         key=lambda item: (
+            status_priority.get(item.get("screening_status"), 1),
             item["score"],
             item["retail_count"],
             item["access_count"],
