@@ -1411,7 +1411,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
             except Exception:
                 continue
 
-            if distance_km(city_lat, city_lon, a_lat, a_lon) > 15:
+            if distance_km(city_lat, city_lon, a_lat, a_lon) > 20:
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1518,7 +1518,7 @@ def search_large_retail_destinations(city_query, limit_per_query=15):
                 continue
 
             d_city = distance_km(city_lat, city_lon, d_lat, d_lon)
-            if d_city is None or d_city > 15:
+            if d_city is None or d_city > 20:
                 continue
 
             namedetails = item.get("namedetails") or {}
