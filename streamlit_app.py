@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-06-golden-spot-runtime-fix2"
+BUILD_VERSION = "2026-10-04-v1.0-rc1"
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
@@ -2568,7 +2568,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         "City-level screening for the strongest retail zones. This is a shortlist tool, "
         "not a replacement for full site due diligence."
     )
-    st.caption(f"Runtime build: {BUILD_VERSION}")
+    st.caption("Runtime diagnostics active")
     gs_left, gs_right = st.columns([1.6, 0.8])
     gs_city = gs_left.text_input(
         "City / area",
