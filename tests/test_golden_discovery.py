@@ -88,8 +88,8 @@ def test_discovery_inventory_survives_top_five_limit(app, city, malls, monkeypat
                 "lon": float(item["lon"]), "kind": "mall"}
                for item in malls if item["name"]]
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: anchors)
-    monkeypatch.setattr(app, "search_retail_anchors", lambda _: [])
-    for name in ["fetch_nearby_retail", "fetch_access_context", "fetch_city_gravity_context"]:
+    monkeypatch.setattr(app, "search_retail_anchors", lambda *args, **kwargs: [])
+    for name in ["fetch_golden_context", "fetch_nearby_retail", "fetch_access_context", "fetch_city_gravity_context"]:
         monkeypatch.setattr(app, name, lambda *args, **kwargs: [])
     shortlist, metadata = app.build_golden_spot_candidates("Tirana")
     assert len(shortlist) == 5
