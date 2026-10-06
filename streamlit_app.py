@@ -36,7 +36,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v1.0-rc1"
+BUILD_VERSION = "2026-10-06-v1.0-rc2"
 
 PROJECT_STAGE_OPTIONS = [
     "Screening",
@@ -1245,8 +1245,61 @@ def distance_km(lat1, lon1, lat2, lon2):
     return 2 * radius * math.asin(math.sqrt(a))
 
 
+def search_retail_anchors(city_query, limit_per_query=4):
+    """Find named retail anchors via Nominatim as a resilient Golden Spot fallback."""
+    queries = [
+        f"shopping mall, {city_query}",
+        f"shopping centre, {city_query}",
+        f"hypermarket, {city_query}",
+        f"retail park, {city_query}",
+        f"market, {city_query}",
+    ]
+    anchors = []
+    seen = set()
+    for query in queries:
+        params = urllib.parse.urlencode(
+            {
+                "q": query,
+                "format": "jsonv2",
+                "limit": limit_per_query,
+                "addressdetails": 1,
+            }
+        )
+        req = urllib.request.Request(
+            f"{NOMINATIM_URL}?{params}",
+            headers={"User-Agent": USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=12) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            continue
+
+        for item in data:
+            try:
+                lat = float(item["lat"])
+                lon = float(item["lon"])
+            except Exception:
+                continue
+            display = item.get("display_name") or query
+            # ~100 m dedupe is enough for screening anchors.
+            key = (round(lat, 3), round(lon, 3))
+            if key in seen:
+                continue
+            seen.add(key)
+            anchors.append(
+                {
+                    "name": display.split(",")[0].strip() or "Retail anchor",
+                    "display_name": display,
+                    "lat": lat,
+                    "lon": lon,
+                }
+            )
+    return anchors
+
+
 def build_golden_spot_candidates(city_query, max_results=5):
-    """Screen a city for strong retail clusters using OSM retail density and access context."""
+    """Screen a city for strong retail zones with resilient open-data fallbacks."""
     geocoded = geocode_location(city_query)
     if not geocoded:
         return [], None
@@ -1254,6 +1307,8 @@ def build_golden_spot_candidates(city_query, max_results=5):
     lat = geocoded["lat"]
     lon = geocoded["lon"]
 
+    retail = []
+    access = []
     try:
         retail = fetch_nearby_retail(lat, lon, radius=12000)
     except Exception:
@@ -1271,79 +1326,160 @@ def build_golden_spot_candidates(city_query, max_results=5):
         row for row in retail
         if row.get("lat") is not None and row.get("lon") is not None
     ]
-    if not usable:
-        return [], geocoded
-
-    # Group nearby retail objects into coarse screening clusters.
-    buckets = {}
-    for row in usable:
-        b_lat = round(float(row["lat"]), 2)
-        b_lon = round(float(row["lon"]), 2)
-        key = (b_lat, b_lon)
-        bucket = buckets.setdefault(
-            key,
-            {"lat": [], "lon": [], "retail": [], "named": set()},
-        )
-        bucket["lat"].append(float(row["lat"]))
-        bucket["lon"].append(float(row["lon"]))
-        bucket["retail"].append(row)
-        name = (row.get("name") or "").strip()
-        if name and name.lower() != "unnamed":
-            bucket["named"].add(name)
 
     candidates = []
-    for bucket in buckets.values():
-        center_lat = sum(bucket["lat"]) / len(bucket["lat"])
-        center_lon = sum(bucket["lon"]) / len(bucket["lon"])
-        retail_count = len(bucket["retail"])
-        named_count = len(bucket["named"])
 
-        access_count = 0
-        for item in access:
-            a_lat = item.get("lat")
-            a_lon = item.get("lon")
-            if a_lat is None or a_lon is None:
-                continue
-            if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
-                access_count += 1
+    # Route A: cluster retail objects returned for the city.
+    if usable:
+        buckets = {}
+        for row in usable:
+            b_lat = round(float(row["lat"]), 2)
+            b_lon = round(float(row["lon"]), 2)
+            key = (b_lat, b_lon)
+            bucket = buckets.setdefault(
+                key,
+                {"lat": [], "lon": [], "retail": [], "named": set()},
+            )
+            bucket["lat"].append(float(row["lat"]))
+            bucket["lon"].append(float(row["lon"]))
+            bucket["retail"].append(row)
+            name = (row.get("name") or "").strip()
+            if name and name.lower() != "unnamed":
+                bucket["named"].add(name)
 
-        # Transparent screening score; deliberately capped below 100 because
-        # traffic, rent and income data are not yet included.
-        score = min(
-            92.0,
-            45.0
-            + min(retail_count, 20) * 1.8
-            + min(named_count, 10) * 1.2
-            + min(access_count, 15) * 0.8,
+        for bucket in buckets.values():
+            center_lat = sum(bucket["lat"]) / len(bucket["lat"])
+            center_lon = sum(bucket["lon"]) / len(bucket["lon"])
+            retail_count = len(bucket["retail"])
+            named_count = len(bucket["named"])
+
+            access_count = 0
+            for item in access:
+                a_lat = item.get("lat")
+                a_lon = item.get("lon")
+                if a_lat is None or a_lon is None:
+                    continue
+                if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
+                    access_count += 1
+
+            score = min(
+                92.0,
+                45.0
+                + min(retail_count, 20) * 1.8
+                + min(named_count, 10) * 1.2
+                + min(access_count, 15) * 0.8,
+            )
+            top_names = sorted(bucket["named"])[:3]
+            label = (
+                " / ".join(top_names)
+                if top_names
+                else f"Retail cluster {center_lat:.3f}, {center_lon:.3f}"
+            )
+            reasons = [
+                f"{retail_count} retail / commercial objects in the local cluster",
+                f"{access_count} major-road / public-transport access objects within ~1.5 km",
+            ]
+            if top_names:
+                reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
+
+            candidates.append(
+                {
+                    "label": label,
+                    "lat": center_lat,
+                    "lon": center_lon,
+                    "score": round(score, 1),
+                    "retail_count": retail_count,
+                    "access_count": access_count,
+                    "reasons": reasons,
+                    "confidence": "Medium" if retail_count >= 5 else "Low",
+                    "source": "retail-cluster",
+                }
+            )
+
+    # Route B: independent named-anchor discovery. This prevents a temporary
+    # Overpass/OSM density failure from incorrectly producing an empty shortlist.
+    anchors = search_retail_anchors(city_query)
+    for anchor in anchors:
+        a_lat = anchor["lat"]
+        a_lon = anchor["lon"]
+
+        local_retail = []
+        local_access = []
+        try:
+            local_retail = fetch_nearby_retail(a_lat, a_lon, radius=2200)
+        except Exception:
+            pass
+        try:
+            local_access = fetch_access_context(a_lat, a_lon, radius=1500)
+        except Exception:
+            pass
+
+        retail_count = len(
+            [
+                row for row in local_retail
+                if row.get("lat") is not None and row.get("lon") is not None
+            ]
+        )
+        access_count = len(
+            [
+                row for row in local_access
+                if row.get("lat") is not None and row.get("lon") is not None
+            ]
         )
 
-        top_names = sorted(bucket["named"])[:3]
-        label = " / ".join(top_names) if top_names else f"Retail cluster {center_lat:.3f}, {center_lon:.3f}"
-        reasons = [
-            f"{retail_count} retail / commercial objects in the local cluster",
-            f"{access_count} major-road / public-transport access objects within ~1.5 km",
-        ]
-        if top_names:
-            reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
+        # Even when enrichment calls fail, a named mapped retail anchor is still
+        # useful as a low-confidence screening candidate rather than "no result".
+        score = min(
+            88.0,
+            52.0
+            + min(retail_count, 18) * 1.4
+            + min(access_count, 12) * 0.8,
+        )
+        confidence = "Medium" if retail_count >= 4 else "Low"
+        reasons = [f"Named retail anchor: {anchor['name']}"]
+        if retail_count:
+            reasons.append(f"{retail_count} mapped retail objects within ~2.2 km")
+        else:
+            reasons.append("Local retail-density enrichment unavailable; anchor retained for screening")
+        if access_count:
+            reasons.append(f"{access_count} mapped access / transport objects within ~1.5 km")
 
         candidates.append(
             {
-                "label": label,
-                "lat": center_lat,
-                "lon": center_lon,
+                "label": anchor["name"],
+                "lat": a_lat,
+                "lon": a_lon,
                 "score": round(score, 1),
                 "retail_count": retail_count,
                 "access_count": access_count,
                 "reasons": reasons,
-                "confidence": "Medium" if retail_count >= 5 else "Low",
+                "confidence": confidence,
+                "source": "named-anchor",
             }
         )
 
-    candidates.sort(
+    # De-duplicate candidates that represent the same physical area.
+    deduped = []
+    for candidate in sorted(
+        candidates,
         key=lambda item: (item["score"], item["retail_count"], item["access_count"]),
         reverse=True,
-    )
-    return candidates[:max_results], geocoded
+    ):
+        too_close = any(
+            distance_km(
+                candidate["lat"],
+                candidate["lon"],
+                existing["lat"],
+                existing["lon"],
+            ) <= 0.8
+            for existing in deduped
+        )
+        if not too_close:
+            deduped.append(candidate)
+        if len(deduped) >= max_results:
+            break
+
+    return deduped, geocoded
 
 
 for state_key, state_value in BASE_ECON_STATE.items():
