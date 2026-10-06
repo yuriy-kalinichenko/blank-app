@@ -1434,6 +1434,10 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     "lat": center_lat,
                     "lon": center_lon,
                     "score": round(score, 1),
+                    "score_base": round(base_component, 1),
+                    "score_retail": round(retail_component, 1),
+                    "score_access": round(access_component, 1),
+                    "score_gravity": round(gravity_component, 1),
                     "retail_count": retail_count,
                     "access_count": access_count,
                     "gravity_count": gravity_count,
@@ -1508,6 +1512,10 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "lat": a_lat,
                 "lon": a_lon,
                 "score": round(score, 1),
+                "score_base": round(base_component, 1),
+                "score_retail": round(retail_component, 1),
+                "score_access": round(access_component, 1),
+                "score_gravity": round(gravity_component, 1),
                 "retail_count": retail_count,
                 "access_count": access_count,
                 "gravity_count": gravity_count,
@@ -2267,11 +2275,18 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                 c1.metric("Confidence", spot["confidence"])
                 d.metric("Retail cluster", spot["retail_count"])
 
+                st.markdown(
+                    "**Score breakdown:** "
+                    f"Base {spot.get('score_base', 0):.1f} · "
+                    f"Retail {spot.get('score_retail', 0):.1f} · "
+                    f"Access {spot.get('score_access', 0):.1f} · "
+                    f"City Gravity {spot.get('score_gravity', 0):.1f}"
+                )
                 for reason in spot["reasons"]:
                     st.write("• " + reason)
 
                 st.caption(
-                    "Screening score currently uses retail clustering and access context. "
+                    "Screening score currently uses retail clustering, access and City Gravity. "
                     "Traffic, income, rent, competition quality and cannibalization will be added as the model evolves."
                 )
 
