@@ -1,0 +1,861 @@
+[
+  {
+    "place_id": 57002379,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 293898197,
+    "lat": "41.2831318",
+    "lon": "19.8570860",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 0.33935777253266924,
+    "addresstype": "shop",
+    "name": "TEG - Tirana East Gate",
+    "display_name": "TEG - Tirana East Gate, 7, Rruga Kabet, Lundër, Farkë, Bashkia Tiranë, Qarku i Tiranës, 1045, Shqipëria",
+    "address": {
+      "shop": "TEG - Tirana East Gate",
+      "house_number": "7",
+      "road": "Rruga Kabet",
+      "village": "Lundër",
+      "city": "Farkë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1045",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "email": "info@teg.al",
+      "phone": "+355 68 80 82 934",
+      "website": "https://www.teg.al/",
+      "building": "retail",
+      "operator": "Balfin Group",
+      "wikidata": "Q2436146",
+      "max_level": "1",
+      "min_level": "-1",
+      "wikipedia": "en:Tirana East Gate",
+      "check_date": "2026-09-13",
+      "wheelchair": "yes",
+      "description": "Shopping mall located in the east part of Tirana.",
+      "opening_hours": "Mo-Fr 10:00-22:00; Sa-Su 09:00-22:00",
+      "internet_access": "wlan",
+      "contact:instagram": "teg_tiranaeastgate",
+      "wikimedia_commons": "Category:Logos of companies of Albania",
+      "check_date:opening_hours": "2026-09-13"
+    },
+    "namedetails": {
+      "name": "TEG - Tirana East Gate",
+      "name:sq": "TEG - Tirana East Gate",
+      "short_name": "TEG"
+    },
+    "boundingbox": [
+      "41.2821202",
+      "41.2841898",
+      "19.8560329",
+      "19.8583744"
+    ]
+  },
+  {
+    "place_id": 56723920,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 282299241,
+    "lat": "41.3678168",
+    "lon": "19.6876258",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 0.33749181912886295,
+    "addresstype": "shop",
+    "name": "Citypark",
+    "display_name": "Citypark, SH2, Picar, Vorë, Bashkia Vorë, Qarku i Tiranës, 1032, Shqipëria",
+    "address": {
+      "shop": "Citypark",
+      "road": "SH2",
+      "village": "Picar",
+      "city": "Vorë",
+      "municipality": "Bashkia Vorë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1032",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "email": "info@cityparkalbania.com",
+      "phone": "+355 69 403 1484;+355 69 614 3300",
+      "building": "yes",
+      "wikidata": "Q1094238",
+      "wikipedia": "en:Citypark Albania",
+      "wheelchair": "yes",
+      "opening_hours": "Mo-Su 09:00-21:00",
+      "wikimedia_commons": "Category:Citypark Mall"
+    },
+    "namedetails": {
+      "name": "Citypark",
+      "name:sq": "Citypark",
+      "alt_name": "City Park"
+    },
+    "boundingbox": [
+      "41.3667712",
+      "41.3688372",
+      "19.6857023",
+      "19.6886117"
+    ]
+  },
+  {
+    "place_id": 57010288,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 531551015,
+    "lat": "41.3540962",
+    "lon": "19.7492368",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 0.12743869505990896,
+    "addresstype": "shop",
+    "name": "QTU (Qendra Tregtare Univers)",
+    "display_name": "QTU (Qendra Tregtare Univers), Rruga Bylis, Kosova (Mëzez), Yrshek, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "QTU (Qendra Tregtare Univers)",
+      "road": "Rruga Bylis",
+      "hamlet": "Kosova (Mëzez)",
+      "village": "Yrshek",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "website": "https://www.qtu.al",
+      "wikidata": "Q1570206",
+      "wikipedia": "sq:Qëndra Tregtare Univers"
+    },
+    "namedetails": {
+      "name": "QTU (Qendra Tregtare Univers)"
+    },
+    "boundingbox": [
+      "41.3524858",
+      "41.3557074",
+      "19.7479011",
+      "19.7504380"
+    ]
+  },
+  {
+    "place_id": 56747472,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 268022192,
+    "lat": "41.3541640",
+    "lon": "19.7490397",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 0.12743869505990896,
+    "addresstype": "shop",
+    "name": "QTU - Qendra Tregtare Univers",
+    "display_name": "QTU - Qendra Tregtare Univers, Rruga Pandi Dardha, Kosova (Mëzez), Yrshek, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1000, Shqipëria",
+    "address": {
+      "shop": "QTU - Qendra Tregtare Univers",
+      "road": "Rruga Pandi Dardha",
+      "hamlet": "Kosova (Mëzez)",
+      "village": "Yrshek",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1000",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "email": "info@qtu.al",
+      "phone": "+355 42 380 100",
+      "website": "https://www.qtu.al/",
+      "building": "retail",
+      "operator": "Balfin Group",
+      "wikidata": "Q1570206",
+      "wikipedia": "sq:Qëndra Tregtare Univers",
+      "wheelchair": "yes",
+      "opening_hours": "Mo-Su 09:00-21:00",
+      "building:levels": "2"
+    },
+    "namedetails": {
+      "name": "QTU - Qendra Tregtare Univers"
+    },
+    "boundingbox": [
+      "41.3529666",
+      "41.3553761",
+      "19.7481532",
+      "19.7502485"
+    ]
+  },
+  {
+    "place_id": 56944913,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 177186612,
+    "lat": "41.3270178",
+    "lon": "19.8227524",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Toptani Shopping Center",
+    "display_name": "Toptani Shopping Center, Shëtitorja Murat Toptani, Qyteti Studenti, Njësia Bashkiake Nr. 2, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1011, Shqipëria",
+    "address": {
+      "shop": "Toptani Shopping Center",
+      "road": "Shëtitorja Murat Toptani",
+      "quarter": "Qyteti Studenti",
+      "suburb": "Njësia Bashkiake Nr. 2",
+      "city_district": "Njësia Bashkiake Nr. 2",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1011",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "email": "info@toptani.com.al",
+      "phone": "+ 355 4 4540999",
+      "height": "36",
+      "toilets": "yes",
+      "website": "https://toptani.com.al",
+      "building": "yes",
+      "wikidata": "Q30596134",
+      "check_date": "2025-07-11",
+      "wheelchair": "yes",
+      "opening_hours": "09:00-22:00",
+      "building:levels": "6",
+      "internet_access": "wlan",
+      "wikimedia_commons": "Category:Toptani Shopping Center",
+      "internet_access:fee": "no",
+      "check_date:opening_hours": "2025-07-11",
+      "building:levels:underground": "5"
+    },
+    "namedetails": {
+      "name": "Toptani Shopping Center",
+      "name:sq": "Toptani Shopping Center",
+      "alt_name": "Toptani"
+    },
+    "boundingbox": [
+      "41.3266456",
+      "41.3274000",
+      "19.8220151",
+      "19.8233700"
+    ]
+  },
+  {
+    "place_id": 57032358,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 449527787,
+    "lat": "41.3325481",
+    "lon": "19.8033536",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Tirana Ring Center",
+    "display_name": "Tirana Ring Center, Sheshi Karl Topia, 21 Dhjetori, Njësia Bashkiake Nr. 7, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1026, Shqipëria",
+    "address": {
+      "shop": "Tirana Ring Center",
+      "road": "Sheshi Karl Topia",
+      "quarter": "21 Dhjetori",
+      "suburb": "Njësia Bashkiake Nr. 7",
+      "city_district": "Njësia Bashkiake Nr. 7",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1026",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "website": "https://ring.al/",
+      "building": "yes",
+      "building:levels": "11"
+    },
+    "namedetails": {
+      "name": "Tirana Ring Center"
+    },
+    "boundingbox": [
+      "41.3321917",
+      "41.3329299",
+      "19.8026950",
+      "19.8040015"
+    ]
+  },
+  {
+    "place_id": 57044986,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 1248895609,
+    "lat": "41.3419117",
+    "lon": "19.7758267",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Casa Italia",
+    "display_name": "Casa Italia, Rruga Pavaresia, Lasku (Mëzez), Mëzez, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "Casa Italia",
+      "road": "Rruga Pavaresia",
+      "hamlet": "Lasku (Mëzez)",
+      "village": "Mëzez",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": {
+      "name": "Casa Italia"
+    },
+    "boundingbox": [
+      "41.3415493",
+      "41.3424532",
+      "19.7754311",
+      "19.7763375"
+    ]
+  },
+  {
+    "place_id": 57007896,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 289794187,
+    "lat": "41.3437492",
+    "lon": "19.7755081",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Terminal Center",
+    "display_name": "Terminal Center, 2, Rruga Prishtina, Lasku (Mëzez), Mëzez, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "Terminal Center",
+      "house_number": "2",
+      "road": "Rruga Prishtina",
+      "hamlet": "Lasku (Mëzez)",
+      "village": "Mëzez",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "hotel",
+      "source_ref:url": "https://www.flickr.com/photos/openstreetmap-albania/"
+    },
+    "namedetails": {
+      "name": "Terminal Center"
+    },
+    "boundingbox": [
+      "41.3435561",
+      "41.3441038",
+      "19.7751465",
+      "19.7759618"
+    ]
+  },
+  {
+    "place_id": 56634943,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 623096635,
+    "lat": "41.3313840",
+    "lon": "19.8197181",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Galeria",
+    "display_name": "Galeria, Rruga Bardhok Biba, Qendra, Njësia Bashkiake Nr. 9, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1002, Shqipëria",
+    "address": {
+      "shop": "Galeria",
+      "road": "Rruga Bardhok Biba",
+      "quarter": "Qendra",
+      "suburb": "Njësia Bashkiake Nr. 9",
+      "city_district": "Njësia Bashkiake Nr. 9",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1002",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": {
+      "name": "Galeria"
+    },
+    "boundingbox": [
+      "41.3312293",
+      "41.3315304",
+      "19.8192586",
+      "19.8201731"
+    ]
+  },
+  {
+    "place_id": 56644592,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 256326439,
+    "lat": "41.3140630",
+    "lon": "19.8025043",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Kristal Center",
+    "display_name": "Kristal Center, Rruga Hasan Alla, Ish Zdruktharia, Komuna e Parisit, Njësia Bashkiake Nr. 5, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1022, Shqipëria",
+    "address": {
+      "shop": "Kristal Center",
+      "road": "Rruga Hasan Alla",
+      "neighbourhood": "Ish Zdruktharia",
+      "quarter": "Komuna e Parisit",
+      "suburb": "Njësia Bashkiake Nr. 5",
+      "city_district": "Njësia Bashkiake Nr. 5",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1022",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "website": "https://www.kristalcenter.com/",
+      "building:part": "yes",
+      "opening_hours": "09:00-21:00",
+      "source_ref:url": "https://www.flickr.com/photos/openstreetmap-albania/",
+      "building:levels": "8"
+    },
+    "namedetails": {
+      "name": "Kristal Center"
+    },
+    "boundingbox": [
+      "41.3139303",
+      "41.3141957",
+      "19.8021917",
+      "19.8028169"
+    ]
+  },
+  {
+    "place_id": 57053020,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 4349646387,
+    "lat": "41.3190588",
+    "lon": "19.8166791",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Vesa Center",
+    "display_name": "Vesa Center, Rruga Abdyl Frashëri, Ish Merkata, Libri Universitar, Njësia Bashkiake Nr. 5, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 8363, Shqipëria",
+    "address": {
+      "shop": "Vesa Center",
+      "road": "Rruga Abdyl Frashëri",
+      "neighbourhood": "Ish Merkata",
+      "quarter": "Libri Universitar",
+      "suburb": "Njësia Bashkiake Nr. 5",
+      "city_district": "Njësia Bashkiake Nr. 5",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "8363",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": null,
+    "namedetails": {
+      "name": "Vesa Center"
+    },
+    "boundingbox": [
+      "41.3190088",
+      "41.3191088",
+      "19.8166291",
+      "19.8167291"
+    ]
+  },
+  {
+    "place_id": 56998997,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 3992321509,
+    "lat": "41.3325582",
+    "lon": "19.8036213",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "Ring Center",
+    "display_name": "Ring Center, Rruga Dritan Hoxha, 21 Dhjetori, Njësia Bashkiake Nr. 7, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1026, Shqipëria",
+    "address": {
+      "shop": "Ring Center",
+      "road": "Rruga Dritan Hoxha",
+      "quarter": "21 Dhjetori",
+      "suburb": "Njësia Bashkiake Nr. 7",
+      "city_district": "Njësia Bashkiake Nr. 7",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1026",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "phone": "+355 44540600",
+      "website": "https://ring.al/",
+      "opening_hours": "09:00-21:00"
+    },
+    "namedetails": {
+      "name": "Ring Center"
+    },
+    "boundingbox": [
+      "41.3325082",
+      "41.3326082",
+      "19.8035713",
+      "19.8036713"
+    ]
+  },
+  {
+    "place_id": 57067416,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "node",
+    "osm_id": 2601818128,
+    "lat": "41.3237499",
+    "lon": "19.8227886",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 7.137788967722618e-05,
+    "addresstype": "shop",
+    "name": "ETC Galeria",
+    "display_name": "ETC Galeria, Bulevardi Bajram Curri, Qyteti Studenti, Njësia Bashkiake Nr. 2, Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1010, Shqipëria",
+    "address": {
+      "shop": "ETC Galeria",
+      "road": "Bulevardi Bajram Curri",
+      "quarter": "Qyteti Studenti",
+      "suburb": "Njësia Bashkiake Nr. 2",
+      "city_district": "Njësia Bashkiake Nr. 2",
+      "city": "Tiranë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1010",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "wheelchair": "limited"
+    },
+    "namedetails": {
+      "name": "ETC Galeria"
+    },
+    "boundingbox": [
+      "41.3236999",
+      "41.3237999",
+      "19.8227386",
+      "19.8228386"
+    ]
+  },
+  {
+    "place_id": 56490852,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 753173332,
+    "lat": "41.3770894",
+    "lon": "19.7947006",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.2238498512199853e-05,
+    "addresstype": "shop",
+    "name": "Kompleksi Belba",
+    "display_name": "Kompleksi Belba, Rruga Demokracia, Bulçesh (Kamëz), Njësia Administrative Bathore Bashkia Kamëz, Kamëz, Bashkia Kamëz, Qarku i Tiranës, 1054, Shqipëria",
+    "address": {
+      "shop": "Kompleksi Belba",
+      "road": "Rruga Demokracia",
+      "hamlet": "Bulçesh (Kamëz)",
+      "city_district": "Njësia Administrative Bathore Bashkia Kamëz",
+      "city": "Kamëz",
+      "municipality": "Bashkia Kamëz",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1054",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": {
+      "name": "Kompleksi Belba"
+    },
+    "boundingbox": [
+      "41.3769184",
+      "41.3772830",
+      "19.7942583",
+      "19.7951487"
+    ]
+  },
+  {
+    "place_id": 56983545,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 1336044493,
+    "lat": "41.3566557",
+    "lon": "19.7847990",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.2238498512199853e-05,
+    "addresstype": "shop",
+    "name": "QTA",
+    "display_name": "QTA, Rruga Arben Broci, Njësia Administrative Paskuqan Bashkia Kamëz, Paskuqan, Bashkia Kamëz, Qarku i Tiranës, 1047, Shqipëria",
+    "address": {
+      "shop": "QTA",
+      "road": "Rruga Arben Broci",
+      "city_district": "Njësia Administrative Paskuqan Bashkia Kamëz",
+      "village": "Paskuqan",
+      "municipality": "Bashkia Kamëz",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1047",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": {
+      "name": "QTA"
+    },
+    "boundingbox": [
+      "41.3564444",
+      "41.3569639",
+      "19.7845530",
+      "19.7850450"
+    ]
+  },
+  {
+    "place_id": 57046243,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 1336065591,
+    "lat": "41.3601467",
+    "lon": "19.7836104",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.2238498512199853e-05,
+    "addresstype": "shop",
+    "name": "",
+    "display_name": "Rruga Abdyl Elmazi, Njësia Administrative Paskuqan Bashkia Kamëz, Kodër-Kamza, Bashkia Kamëz, Qarku i Tiranës, 1047, Shqipëria",
+    "address": {
+      "road": "Rruga Abdyl Elmazi",
+      "city_district": "Njësia Administrative Paskuqan Bashkia Kamëz",
+      "village": "Kodër-Kamza",
+      "municipality": "Bashkia Kamëz",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1047",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": null,
+    "boundingbox": [
+      "41.3600407",
+      "41.3602213",
+      "19.7834595",
+      "19.7837612"
+    ]
+  },
+  {
+    "place_id": 56949964,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 293898198,
+    "lat": "41.2821325",
+    "lon": "19.8559228",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.000152590214416e-05,
+    "addresstype": "shop",
+    "name": "",
+    "display_name": "Rruga Kabet, Lundër, Farkë, Bashkia Tiranë, Qarku i Tiranës, 1045, Shqipëria",
+    "address": {
+      "road": "Rruga Kabet",
+      "village": "Lundër",
+      "city": "Farkë",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1045",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": null,
+    "boundingbox": [
+      "41.2817191",
+      "41.2825418",
+      "19.8554966",
+      "19.8565348"
+    ]
+  },
+  {
+    "place_id": 57006267,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 474922329,
+    "lat": "41.3454188",
+    "lon": "19.7709683",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.000152590214416e-05,
+    "addresstype": "shop",
+    "name": "Pajtoni Center",
+    "display_name": "Pajtoni Center, km1, Rruga Prishtina, Shehu (Mëzez), Mëzez, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "Pajtoni Center",
+      "house_number": "km1",
+      "road": "Rruga Prishtina",
+      "hamlet": "Shehu (Mëzez)",
+      "village": "Mëzez",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "phone": "+355 67 600 0737",
+      "toilets": "yes",
+      "website": "https://pajtoni.al/",
+      "building": "commercial"
+    },
+    "namedetails": {
+      "name": "Pajtoni Center"
+    },
+    "boundingbox": [
+      "41.3451007",
+      "41.3457367",
+      "19.7704392",
+      "19.7714974"
+    ]
+  },
+  {
+    "place_id": 56627965,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 1266334749,
+    "lat": "41.3498692",
+    "lon": "19.7589115",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.000152590214416e-05,
+    "addresstype": "shop",
+    "name": "Nova - Godina B",
+    "display_name": "Nova - Godina B, Rruga Prishtina, Shehu (Mëzez), Mëzez, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "Nova - Godina B",
+      "road": "Rruga Prishtina",
+      "hamlet": "Shehu (Mëzez)",
+      "village": "Mëzez",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "yes"
+    },
+    "namedetails": {
+      "name": "Nova - Godina B"
+    },
+    "boundingbox": [
+      "41.3495004",
+      "41.3502777",
+      "19.7584476",
+      "19.7592768"
+    ]
+  },
+  {
+    "place_id": 56488940,
+    "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+    "osm_type": "way",
+    "osm_id": 1266334750,
+    "lat": "41.3496267",
+    "lon": "19.7592637",
+    "category": "shop",
+    "type": "mall",
+    "place_rank": 30,
+    "importance": 5.000152590214416e-05,
+    "addresstype": "shop",
+    "name": "Nova - Godina A",
+    "display_name": "Nova - Godina A, Rruga Prishtina, Shehu (Mëzez), Mëzez, Kashar, Bashkia Tiranë, Qarku i Tiranës, 1051, Shqipëria",
+    "address": {
+      "shop": "Nova - Godina A",
+      "road": "Rruga Prishtina",
+      "hamlet": "Shehu (Mëzez)",
+      "village": "Mëzez",
+      "municipality": "Bashkia Tiranë",
+      "county": "Qarku i Tiranës",
+      "ISO3166-2-lvl6": "AL-11",
+      "postcode": "1051",
+      "country": "Shqipëria",
+      "country_code": "al"
+    },
+    "extratags": {
+      "building": "retail"
+    },
+    "namedetails": {
+      "name": "Nova - Godina A"
+    },
+    "boundingbox": [
+      "41.3493273",
+      "41.3501142",
+      "19.7589479",
+      "19.7596998"
+    ]
+  }
+]
