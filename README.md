@@ -95,3 +95,14 @@ Before calling the release final:
 - Catchment population and children-demand values are shown for available zones.
 - Economics and saved-project comparison remain consistent after save/load.
 - The deployed Streamlit app opens cleanly from a fresh browser session.
+
+
+## Golden Spot: Jumbo premises screening (v3)
+
+Golden Spot separates **candidate sites**, **traffic generators**, and **background context** before ranking. Only named, mapped shopping centres / retail parks and explicitly typed shopping destinations can enter the shortlist. A generic retail building / land tag is insufficient: it may describe an occupied small business. Existing tenant businesses (including supermarkets, cafes and pharmacies) are factors, never candidate premises. A dense POI cluster does not create a synthetic site. Distinct nearby venues stay separate.
+
+The transparent evidence score uses venue type (40), shopping / family traffic (20), road / transit proximity (25), and nearby parking (15). Small food/service POIs have capped influence. A single city map snapshot gives candidates the same context coverage. Distance from the city centre is descriptive, not a penalty for suburban destination malls. Equal scores use name and object identity for deterministic ordering.
+
+These weights are screening heuristics, not calibrated sales or investment forecasts. Missing context remains unknown; it is never presented as zero demand. Mapped premises do not establish vacancy, leasable area, loading rights, rent, CAPEX, logistics cost or network cannibalisation. Those remain explicit due-diligence checks before opening a Jumbo. Search coverage is limited by public-map completeness.
+
+Regression checks cover tenant/building tag conflicts, no-site searches, adjacent distinct malls, missing context, deterministic ordering and the TEG/QTU discovery fixture.

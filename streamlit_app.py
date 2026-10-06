@@ -16,6 +16,11 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 
+from golden_spot import (
+    MODEL_VERSION, TAG_KEYS, category as golden_category, classify_object,
+    identity as golden_identity, score_candidate, rank_candidates,
+)
+
 from project_library import (
     default_project_library,
     export_project_library as serialize_project_library,
@@ -94,10 +99,12 @@ def run_overpass_query(query):
     data = encoded.encode("utf-8")
     errors = []
 
-    for endpoint in OVERPASS_URLS:
+    screening = _SCREENING_NETWORK.get() is not None
+    endpoints = ([OVERPASS_URLS[2]] + OVERPASS_URLS[:2] + OVERPASS_URLS[3:]) if screening else OVERPASS_URLS
+    for endpoint in endpoints:
         # POST is preferred, but some public mirrors/cloud egress paths intermittently
         # reject POST requests. Fall back to GET before moving to the next mirror.
-        for method in ("POST", "GET"):
+        for method in (("GET", "POST") if screening else ("POST", "GET")):
             try:
                 if method == "POST":
                     url = endpoint
@@ -122,10 +129,10 @@ def run_overpass_query(query):
                         method="GET",
                     )
 
-                with screening_response(req, timeout=10, pool="overpass") as response:
+                with screening_response(req, timeout=20 if screening else 10, pool="overpass") as response:
                     payload = json.loads(response.read().decode("utf-8"))
 
-                if isinstance(payload, dict) and "elements" in payload:
+                if isinstance(payload, dict) and "elements" in payload and not payload.get("remark"):
                     return payload
                 errors.append(f"{endpoint} {method}: invalid response")
             except Exception as exc:
@@ -1326,7 +1333,7 @@ def distance_km(lat1, lon1, lat2, lon2):
     return 2 * radius * math.asin(math.sqrt(a))
 
 
-def search_retail_anchors(city_query, limit_per_query=10):
+def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True):
     """Discover named retail anchors across the city before scoring them."""
     geocoded = geocode_location(city_query)
     if not geocoded:
@@ -1351,7 +1358,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
     out center tags;
     """
     try:
-        payload = run_overpass_query(query)
+        payload = run_overpass_query(query) if include_overpass else {}
         for element in payload.get("elements", []):
             tags = element.get("tags") or {}
             name = (tags.get("name:en") or tags.get("name") or "").strip()
@@ -1378,6 +1385,10 @@ def search_retail_anchors(city_query, limit_per_query=10):
                     "lat": float(point_lat),
                     "lon": float(point_lon),
                     "kind": str(kind).lower(),
+                    "tags": tags,
+                    **{key: tags[key] for key in TAG_KEYS if key in tags},
+                    "osm_type": element.get("type"),
+                    "osm_id": element.get("id"),
                 }
             )
     except Exception:
@@ -1411,6 +1422,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
                 "limit": limit_per_query,
                 "addressdetails": 1,
                 "namedetails": 1,
+                "extratags": 1,
                 **(
                     {
                         "viewbox": (
@@ -1448,7 +1460,7 @@ def search_retail_anchors(city_query, limit_per_query=10):
             name = (
                 namedetails.get("name:en")
                 or namedetails.get("name")
-                or display.split(",")[0].strip()
+                or item.get("name") or ""
             )
             if not name or name.casefold() in generic_names:
                 continue
@@ -1463,7 +1475,12 @@ def search_retail_anchors(city_query, limit_per_query=10):
                     "display_name": display or name,
                     "lat": a_lat,
                     "lon": a_lon,
-                    "kind": (item.get("type") or item.get("class") or "retail").lower(),
+                    "kind": (item.get("type") or item.get("class") or "unknown").lower(),
+                    "tags": item.get("extratags") or {},
+                    **{key: value for key, value in (item.get("extratags") or {}).items() if key in TAG_KEYS},
+                    **({item.get("category") or item.get("class"): item.get("type")} if (item.get("category") or item.get("class")) in TAG_KEYS else {}),
+                    "osm_type": item.get("osm_type"),
+                    "osm_id": item.get("osm_id"),
                 }
             )
 
@@ -1568,7 +1585,7 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
             if not name or name.casefold() in generic_names:
                 continue
 
-            raw_kind = (item.get("type") or item.get("class") or "mall").lower()
+            raw_kind = (item.get("type") or item.get("class") or "unknown").lower()
             extra = item.get("extratags") or {}
             kind = (
                 extra.get("shop")
@@ -1582,6 +1599,9 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
                 "lon": d_lon,
                 "kind": str(kind).lower(),
                 "discovery_source": "large-retail-search",
+                "tags": extra,
+                **{key: extra[key] for key in TAG_KEYS if key in extra},
+                **({item.get("category") or item.get("class"): item.get("type")} if (item.get("category") or item.get("class")) in TAG_KEYS else {}),
                 "osm_type": item.get("osm_type"),
                 "osm_id": item.get("osm_id"),
             }
@@ -1591,92 +1611,40 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
     return destinations[:80]
 
 
-def golden_format_suitability(anchor_kind, retail_count, named_count=0):
-    """Return a transparent 0-15 format-fit score for a large-format Jumbo store."""
-    kind = (anchor_kind or "").lower()
-    if any(token in kind for token in ("mall", "shopping_centre", "shopping_center", "retail")):
-        base = 12.0
-    elif any(token in kind for token in ("hypermarket", "department_store")):
-        base = 10.0
-    elif "supermarket" in kind:
-        base = 3.5
-    elif "market" in kind or "marketplace" in kind:
-        base = 1.5
-    else:
-        base = 4.0
-    cluster_bonus = min(3.0, retail_count / 6.0 + named_count / 10.0)
-    return min(15.0, base + cluster_bonus)
-
-
-def golden_corridor_score(access_rows):
-    """Return 0-12 score based on major-road / public transport strength."""
-    major_weights = {
-        "motorway": 4.0,
-        "trunk": 3.5,
-        "primary": 2.5,
-        "secondary": 1.5,
-        "tertiary": 0.8,
-        "bus_stop": 0.25,
-    }
-    score = 0.0
-    seen = set()
-    for row in access_rows or []:
-        highway = row.get("highway")
-        railway = row.get("railway")
-        public_transport = row.get("public_transport")
-        signature = (highway, railway, public_transport, row.get("name"))
-        if signature in seen:
+def fetch_golden_context(lat, lon):
+    """One city-wide snapshot gives every candidate the same evidence coverage."""
+    radius = GOLDEN_SEARCH_RADIUS_KM * 1000
+    query = f"""
+    [out:json][timeout:18];
+    (
+      nwr(around:{radius},{lat},{lon})["shop"];
+      nwr(around:{radius},{lat},{lon})["building"="retail"];
+      nwr(around:{radius},{lat},{lon})["landuse"="retail"];
+      nwr(around:{radius},{lat},{lon})["amenity"~"^(parking|cafe|restaurant|fast_food|pharmacy|cinema|theatre|marketplace)$"];
+      nwr(around:{radius},{lat},{lon})["leisure"~"^(park|sports_centre|fitness_centre)$"];
+      nwr(around:{radius},{lat},{lon})["tourism"~"^(attraction|museum|gallery)$"];
+      way(around:{radius},{lat},{lon})["highway"~"^(motorway|trunk|primary|secondary|tertiary|pedestrian)$"];
+      nwr(around:{radius},{lat},{lon})["highway"="bus_stop"];
+      nwr(around:{radius},{lat},{lon})["public_transport"="platform"];
+      nwr(around:{radius},{lat},{lon})["railway"~"^(station|halt|subway_entrance|tram_stop)$"];
+    );
+    out center tags;
+    """
+    rows = []
+    for element in run_overpass_query(query).get("elements", []):
+        tags = element.get("tags") or {}
+        center = element if element.get("lat") is not None else element.get("center", {})
+        if center.get("lat") is None or center.get("lon") is None:
             continue
-        seen.add(signature)
-        if highway in major_weights:
-            score += major_weights[highway]
-        elif railway in {"station", "halt", "subway_entrance"}:
-            score += 1.2
-        elif public_transport == "platform":
-            score += 0.4
-    return min(12.0, score)
+        rows.append({
+            "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
+            "lat": float(center["lat"]), "lon": float(center["lon"]),
+            "tags": tags, **{key: tags[key] for key in TAG_KEYS if key in tags},
+            "osm_type": element.get("type"), "osm_id": element.get("id"),
+            "discovery_source": "city-map-snapshot",
+        })
+    return rows
 
-
-def golden_distance_penalty(distance_from_city_km, corridor_score, format_score):
-    """Penalize fringe sites unless distance is justified by a true destination-retail format."""
-    d = float(distance_from_city_km or 0.0)
-    if d <= 4:
-        return 0.0
-
-    # Corridor alone is not enough. Protection only becomes strong when
-    # large-format suitability is also high.
-    corridor_factor = min(1.0, float(corridor_score or 0.0) / 12.0)
-    format_factor = min(1.0, float(format_score or 0.0) / 15.0)
-    protection = corridor_factor * format_factor
-
-    raw = min(20.0, max(0.0, d - 4.0) * 1.6)
-    return raw * (1.0 - 0.65 * protection)
-
-
-def golden_investability_gate(distance_km_value, gravity_count, format_score, retail_count, corridor_score):
-    """Apply a hard screening gate so a road corridor alone cannot become the #1 Jumbo site."""
-    d = float(distance_km_value or 0.0)
-    gravity = int(gravity_count or 0)
-    fmt = float(format_score or 0.0)
-    retail = int(retail_count or 0)
-    corridor = float(corridor_score or 0.0)
-
-    # Far-fringe site with no local gravity needs proof of destination-retail strength.
-    if d > 10 and gravity == 0:
-        if fmt < 10 or retail < 6:
-            return {
-                "cap": 49.0,
-                "status": "Watchlist",
-                "reason": "Far from city centre with zero City Gravity and insufficient destination-retail strength",
-            }
-        if corridor >= 10 and fmt >= 10 and retail >= 6:
-            return {
-                "cap": 65.0,
-                "status": "Needs demand proof",
-                "reason": "Strong corridor, but catchment/demand must be proven before investment ranking",
-            }
-
-    return {"cap": 95.0, "status": "Screening", "reason": ""}
 
 def build_golden_spot_candidates(city_query, max_results=5):
     # Failed public providers must not cost minutes for every discovered mall.
@@ -1694,341 +1662,69 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
 
 def _build_golden_spot_candidates(city_query, max_results=5):
-    """Screen a city for strong retail zones with resilient open-data fallbacks."""
+    """Classify all evidence first; only identifiable retail premises can rank."""
     geocoded = geocode_location(city_query)
     if not geocoded:
         return [], None
-
-    lat = geocoded["lat"]
-    lon = geocoded["lon"]
-
-    retail = []
-    access = []
+    lat, lon = geocoded["lat"], geocoded["lon"]
     try:
-        retail = fetch_nearby_retail(lat, lon, radius=12000)
+        large = search_large_retail_destinations(city_query)
     except Exception:
+        large = []
+    try:
+        context = fetch_golden_context(lat, lon)
+        context_available = True
+    except Exception:
+        context, context_available = [], False
+    try:
+        broad = search_retail_anchors(city_query, include_overpass=False)
+    except Exception:
+        broad = []
+
+    inventory = []
+    by_id = {}
+    # Merge richer OSM tags before classification, including tenant/inactive tags.
+    for original in large + broad + context:
+        row = dict(original)
         try:
-            retail = fetch_osm_map_retail(lat, lon, radius=6000)
-        except Exception:
-            retail = []
-
-    try:
-        access = fetch_access_context(lat, lon, radius=6000)
-    except Exception:
-        access = []
-
-    usable = [
-        row for row in retail
-        if row.get("lat") is not None and row.get("lon") is not None
-    ]
-
-    candidates = []
-
-    # Route A: cluster retail objects returned for the city.
-    if usable:
-        buckets = {}
-        for row in usable:
-            b_lat = round(float(row["lat"]), 2)
-            b_lon = round(float(row["lon"]), 2)
-            key = (b_lat, b_lon)
-            bucket = buckets.setdefault(
-                key,
-                {"lat": [], "lon": [], "retail": [], "named": set()},
-            )
-            bucket["lat"].append(float(row["lat"]))
-            bucket["lon"].append(float(row["lon"]))
-            bucket["retail"].append(row)
-            name = (row.get("name") or "").strip()
-            if name and name.lower() != "unnamed":
-                bucket["named"].add(name)
-
-        for bucket in buckets.values():
-            center_lat = sum(bucket["lat"]) / len(bucket["lat"])
-            center_lon = sum(bucket["lon"]) / len(bucket["lon"])
-            retail_count = len(bucket["retail"])
-            named_count = len(bucket["named"])
-
-            access_count = 0
-            for item in access:
-                a_lat = item.get("lat")
-                a_lon = item.get("lon")
-                if a_lat is None or a_lon is None:
-                    continue
-                if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
-                    access_count += 1
-
-            try:
-                gravity_count = len(fetch_city_gravity_context(center_lat, center_lon, radius=1800))
-            except Exception:
-                gravity_count = 0
-
-            local_access_rows = []
-            for item in access:
-                a_lat = item.get("lat")
-                a_lon = item.get("lon")
-                if a_lat is None or a_lon is None:
-                    continue
-                if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
-                    local_access_rows.append(item)
-
-            corridor_component = golden_corridor_score(local_access_rows)
-            format_component = golden_format_suitability(
-                "retail_cluster", retail_count, named_count
-            )
-            city_distance_km = distance_km(lat, lon, center_lat, center_lon) or 0.0
-            distance_penalty = golden_distance_penalty(
-                city_distance_km, corridor_component, format_component
-            )
-            weak_gravity_penalty = 4.0 if gravity_count == 0 and city_distance_km > 8 else 0.0
-
-            retail_component = min(30.0, retail_count * 1.15 + named_count * 1.1)
-            access_component = min(13.0, access_count * 0.75)
-            gravity_component = min(15.0, gravity_count * 0.45)
-            base_component = 15.0
-            score = max(
-                0.0,
-                min(
-                    95.0,
-                    base_component
-                    + retail_component
-                    + access_component
-                    + gravity_component
-                    + corridor_component
-                    + format_component
-                    - distance_penalty
-                    - weak_gravity_penalty,
-                ),
-            )
-            investability = golden_investability_gate(
-                city_distance_km,
-                gravity_count,
-                format_component,
-                retail_count,
-                corridor_component,
-            )
-            score = min(score, investability["cap"])
-            top_names = sorted(bucket["named"])[:3]
-            label = (
-                " / ".join(top_names)
-                if top_names
-                else f"Retail cluster {center_lat:.3f}, {center_lon:.3f}"
-            )
-            reasons = [
-                f"{retail_count} retail / commercial objects in the local cluster",
-                f"{access_count} major-road / public-transport access objects within ~1.5 km",
-                f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)",
-                f"Traffic corridor score {corridor_component:.1f}/12",
-                f"Large-format suitability {format_component:.1f}/15",
-                f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}",
-                f"Weak-gravity penalty {weak_gravity_penalty:.1f}",
-            ]
-            if investability["reason"]:
-                reasons.append("Screening gate: " + investability["reason"])
-            if top_names:
-                reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
-
-            candidates.append(
-                {
-                    "label": label,
-                    "address": f"{center_lat:.6f}, {center_lon:.6f}",
-                    "lat": center_lat,
-                    "lon": center_lon,
-                    "score": round(score, 1),
-                    "score_base": round(base_component, 1),
-                    "score_retail": round(retail_component, 1),
-                    "score_access": round(access_component, 1),
-                    "score_gravity": round(gravity_component, 1),
-                    "score_corridor": round(corridor_component, 1),
-                    "score_format": round(format_component, 1),
-                    "score_penalty": round(distance_penalty + weak_gravity_penalty, 1),
-                    "distance_city_km": round(city_distance_km, 1),
-                    "retail_count": retail_count,
-                    "access_count": access_count,
-                    "gravity_count": gravity_count,
-                    "reasons": reasons,
-                    "confidence": "Medium" if retail_count >= 5 else "Low",
-                    "screening_status": investability["status"],
-                    "source": "retail-cluster",
-                }
-            )
-
-    # Route B: independent named-anchor discovery. This prevents a temporary
-    # Overpass/OSM density failure from incorrectly producing an empty shortlist.
-    # Merge broad retail discovery with a separate large-destination search.
-    # This prevents major malls from being crowded out by many ordinary supermarkets.
-    anchors = []
-    # External discovery must never prevent Golden Spot from running.
-    try:
-        large_anchors = search_large_retail_destinations(city_query)
-    except Exception:
-        large_anchors = []
-    try:
-        broad_anchors = search_retail_anchors(city_query)
-    except Exception:
-        broad_anchors = []
-
-    for anchor in large_anchors + broad_anchors:
-        try:
-            anchor_distance = distance_km(lat, lon, float(anchor["lat"]), float(anchor["lon"]))
-        except (KeyError, TypeError, ValueError):
+            row["lat"], row["lon"] = float(row["lat"]), float(row["lon"])
+            if not math.isfinite(row["lat"]) or not math.isfinite(row["lon"]):
+                continue
+            if distance_km(lat, lon, row["lat"], row["lon"]) > GOLDEN_SEARCH_RADIUS_KM:
+                continue
+        except (KeyError, ValueError, TypeError):
             continue
-        if anchor_distance > GOLDEN_SEARCH_RADIUS_KM:
+        key = golden_identity(row)
+        if key in by_id:
+            existing = by_id[key]
+            merged_tags = {**existing.get("tags", {}), **row.get("tags", {})}
+            existing.update({k: v for k, v in row.items() if v is not None and k != "name"})
+            existing["tags"] = merged_tags
             continue
-        if any(same_retail_destination(anchor, old) for old in anchors):
+        by_id[key] = row
+        inventory.append(row)
+
+    groups = {"candidate": [], "traffic": [], "background": []}
+    for row in sorted(inventory, key=lambda r: (r["name"].casefold(), golden_identity(r))):
+        row["kind"] = golden_category(row)
+        row["role"], row["classification_reason"] = classify_object(row)
+        group = groups[row["role"]]
+        if any(same_retail_destination(row, old) and row["kind"] == old["kind"] for old in group):
             continue
-        anchors.append(anchor)
-
-    for anchor in anchors:
-        a_lat = anchor["lat"]
-        a_lon = anchor["lon"]
-
-        local_retail = []
-        local_access = []
-        try:
-            local_retail = fetch_nearby_retail(a_lat, a_lon, radius=2200)
-        except Exception:
-            pass
-        try:
-            local_access = fetch_access_context(a_lat, a_lon, radius=1500)
-        except Exception:
-            pass
-
-        retail_count = len(
-            [
-                row for row in local_retail
-                if row.get("lat") is not None and row.get("lon") is not None
-            ]
-        )
-        access_count = len(
-            [
-                row for row in local_access
-                if row.get("lat") is not None and row.get("lon") is not None
-            ]
-        )
-
-        # Even when enrichment calls fail, a named mapped retail anchor is still
-        # useful as a low-confidence screening candidate rather than "no result".
-        try:
-            gravity_count = len(fetch_city_gravity_context(a_lat, a_lon, radius=1800))
-        except Exception:
-            gravity_count = 0
-
-        corridor_component = golden_corridor_score(local_access)
-        format_component = golden_format_suitability(
-            anchor.get("kind"), retail_count, 1
-        )
-        city_distance_km = distance_km(lat, lon, a_lat, a_lon) or 0.0
-        distance_penalty = golden_distance_penalty(
-            city_distance_km, corridor_component, format_component
-        )
-        weak_gravity_penalty = 4.0 if gravity_count == 0 and city_distance_km > 8 else 0.0
-
-        retail_component = min(30.0, retail_count * 1.2)
-        access_component = min(13.0, access_count * 0.75)
-        gravity_component = min(15.0, gravity_count * 0.45)
-        base_component = 15.0
-        score = max(
-            0.0,
-            min(
-                95.0,
-                base_component
-                + retail_component
-                + access_component
-                + gravity_component
-                + corridor_component
-                + format_component
-                - distance_penalty
-                - weak_gravity_penalty,
-            ),
-        )
-        investability = golden_investability_gate(
-            city_distance_km,
-            gravity_count,
-            format_component,
-            retail_count,
-            corridor_component,
-        )
-        score = min(score, investability["cap"])
-        confidence = "Medium" if retail_count >= 4 else "Low"
-        reasons = [f"Named retail anchor: {anchor['name']}"]
-        if retail_count:
-            reasons.append(f"{retail_count} mapped retail objects within ~2.2 km")
-        else:
-            reasons.append("Local retail-density enrichment unavailable; anchor retained for screening")
-        if access_count:
-            reasons.append(f"{access_count} mapped access / transport objects within ~1.5 km")
-        reasons.append(
-            f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)"
-        )
-        reasons.append(f"Traffic corridor score {corridor_component:.1f}/12")
-        reasons.append(f"Large-format suitability {format_component:.1f}/15")
-        reasons.append(
-            f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}"
-        )
-        reasons.append(f"Weak-gravity penalty {weak_gravity_penalty:.1f}")
-        if investability["reason"]:
-            reasons.append("Screening gate: " + investability["reason"])
-
-        candidates.append(
-            {
-                "label": anchor["name"],
-                "address": anchor.get("display_name") or anchor["name"],
-                "lat": a_lat,
-                "lon": a_lon,
-                "score": round(score, 1),
-                "score_base": round(base_component, 1),
-                "score_retail": round(retail_component, 1),
-                "score_access": round(access_component, 1),
-                "score_gravity": round(gravity_component, 1),
-                "score_corridor": round(corridor_component, 1),
-                "score_format": round(format_component, 1),
-                "score_penalty": round(distance_penalty + weak_gravity_penalty, 1),
-                "distance_city_km": round(city_distance_km, 1),
-                "retail_count": retail_count,
-                "access_count": access_count,
-                "gravity_count": gravity_count,
-                "reasons": reasons,
-                "confidence": confidence,
-                "screening_status": investability["status"],
-                "source": anchor.get("discovery_source", "named-anchor"),
-            }
-        )
-
-    # De-duplicate candidates that represent the same physical area.
-    deduped = []
-    status_priority = {
-        "Screening": 2,
-        "Needs demand proof": 1,
-        "Watchlist": 0,
-    }
-    for candidate in sorted(
-        candidates,
-        key=lambda item: (
-            status_priority.get(item.get("screening_status"), 1),
-            item["score"],
-            item["retail_count"],
-            item["access_count"],
-            item.get("gravity_count", 0),
-        ),
-        reverse=True,
-    ):
-        too_close = any(
-            distance_km(
-                candidate["lat"],
-                candidate["lon"],
-                existing["lat"],
-                existing["lon"],
-            ) <= 0.8
-            for existing in deduped
-        )
-        if not too_close:
-            deduped.append(candidate)
-        if len(deduped) >= max_results:
-            break
-
+        group.append(row)
+    inventory = [r for group in groups.values() for r in group]
+    scored = [score_candidate(row, inventory, context_available) for row in groups["candidate"]]
+    ranked = rank_candidates(scored, len(scored))
     meta = dict(geocoded)
-    meta["discovered_anchors"] = anchors
-    return deduped, meta
+    meta.update({
+        "model_version": MODEL_VERSION, "query": city_query,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "discovered_anchors": groups["candidate"],
+        "candidate_sites": ranked, "traffic_generators": groups["traffic"],
+        "background_context": groups["background"],
+        "context_available": context_available,
+    })
+    return ranked[:max(0, max_results)], meta
 
 
 for state_key, state_value in BASE_ECON_STATE.items():
@@ -2649,10 +2345,13 @@ else:
 
 with st.expander("🌟 Golden Spot workspace", expanded=False):
     st.caption(
-        "City-level screening for the strongest retail zones. This is a shortlist tool, "
-        "not a replacement for full site due diligence."
+        "Jumbo expansion screening: identifiable retail premises, shopping / family traffic, "
+        "road access and nearby parking. A mapped venue is not a confirmed vacant unit."
     )
-    st.caption("Discovery: geographic search · 20 km · v2")
+    st.caption("Jumbo screening · candidates / traffic / context · 20 km · v3")
+    if (st.session_state.get("golden_spot_meta") or {}).get("model_version") != MODEL_VERSION:
+        st.session_state.pop("golden_spot_results", None)
+        st.session_state.pop("golden_spot_meta", None)
     gs_left, gs_right = st.columns([1.6, 0.8])
     gs_city = gs_left.text_input(
         "City / area",
@@ -2671,8 +2370,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         if not gs_city.strip():
             st.warning("Enter a city or area first.")
         else:
-            st.info("Golden Spot request received. Starting screening...")
-            with st.spinner("Screening retail clusters..."):
+            with st.spinner("Screening Jumbo premises and their surroundings..."):
                 try:
                     gs_results, gs_meta = build_golden_spot_candidates(gs_city.strip())
                 except Exception as exc:
@@ -2685,42 +2383,43 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
     gs_meta = st.session_state.get("golden_spot_meta")
 
     if gs_meta:
-        st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)}")
-        if gs_meta.get("enrichment_limited"):
-            st.warning(
-                "Some map enrichment was unavailable or exceeded the screening time budget. "
-                "Missing retail, access or City Gravity data is not evidence of no demand; "
-                "the shortlist is provisional."
-            )
-        discovered = gs_meta.get("discovered_anchors") or []
-        if discovered:
-            with st.expander(f"Discovered retail destinations · {len(discovered)}", expanded=True):
-                st.caption(
-                    "All named destinations found within the search area, before top-5 ranking. "
-                    "Nearby destinations may share one shortlisted zone. Open-map coverage is not exhaustive."
-                )
-                st.dataframe(
-                    pd.DataFrame([
-                        {
-                            "Destination": anchor["name"],
-                            "Type": anchor.get("kind", "retail"),
-                            "Distance, km": round(distance_km(
-                                gs_meta["lat"], gs_meta["lon"], anchor["lat"], anchor["lon"]
-                            ), 1),
-                            "Shortlisted zone": next((
-                                f"#{idx}" for idx, spot in enumerate(gs_results, 1)
-                                if distance_km(anchor["lat"], anchor["lon"], spot["lat"], spot["lon"]) <= 0.8
-                            ), "Outside top 5"),
-                            "Address": anchor.get("display_name", anchor["name"]),
-                        }
-                        for anchor in discovered
-                    ]),
-                    hide_index=True,
-                    use_container_width=True,
-                )
+        st.success(f"Jumbo screening complete · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
+        st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
+        if not gs_meta.get("context_available"):
+            st.warning("Surrounding map data is unavailable. Traffic, access and parking remain unknown. The preliminary order uses venue type only; equal scores are ordered by name.")
+        st.caption("Evidence score: venue type 40 + shopping / family traffic 20 + road / transit access 25 + nearby parking 15. These are screening weights, not a sales forecast. Missing factors remain unknown. City-centre distance does not penalise destination malls.")
+        gs_counts = st.columns(3)
+        gs_counts[0].metric("Candidate sites", len(gs_meta.get("candidate_sites", [])))
+        gs_counts[1].metric("Traffic generators", len(gs_meta.get("traffic_generators", [])))
+        gs_counts[2].metric("Background context", len(gs_meta.get("background_context", [])))
+        gs_rank = {spot["candidate_id"]: idx for idx, spot in enumerate(gs_results, 1)}
+        with st.expander(f"Jumbo candidate sites · {len(gs_meta.get('candidate_sites', []))}", expanded=True):
+            st.caption("Only mapped shopping centres, retail parks and explicitly typed shopping destinations. Generic commercial buildings require verification first. Distinct nearby venues remain separate. Open-map coverage is not exhaustive; vacancy and Jumbo unit size must be confirmed.")
+            st.dataframe(pd.DataFrame([
+                {"Candidate": row["name"], "Type": row["kind"], "Evidence score": row["score"],
+                 "Shortlist": f"#{gs_rank[row['candidate_id']]}" if row["candidate_id"] in gs_rank else "Outside top 5",
+                 "Distance, km": round(distance_km(gs_meta["lat"], gs_meta["lon"], row["lat"], row["lon"]), 1),
+                 "Premises": "Size / vacancy / lease unverified", "Address": row["address"]}
+                for row in gs_meta.get("candidate_sites", [])
+            ]), hide_index=True, use_container_width=True)
+        for gs_key, gs_title in [("traffic_generators", "Traffic generators"), ("background_context", "Background context")]:
+            gs_rows = gs_meta.get(gs_key, [])
+            with st.expander(f"{gs_title} · {len(gs_rows)}", expanded=False):
+                st.caption("Factors around candidate sites only. These objects cannot enter the Jumbo shortlist or create a candidate project.")
+                if gs_rows:
+                    st.dataframe(pd.DataFrame([
+                        {"Object": row["name"], "Type": row["kind"], "Use": row["classification_reason"]}
+                        for row in gs_rows
+                    ]), hide_index=True, use_container_width=True)
+                else:
+                    st.caption("No objects returned" if gs_meta.get("context_available") else "Map context unavailable; this does not mean there are no objects.")
 
     if gs_results:
-        st.markdown("#### Provisional shortlist" if gs_meta.get("enrichment_limited") else "#### Recommended shortlist")
+        st.markdown("#### Jumbo shortlist · premises to investigate")
+        st.dataframe(pd.DataFrame([
+            {"Rank": idx, "Candidate": spot["label"], "Type": spot["kind"], "Evidence score": spot["score"], "Confidence": spot["confidence"]}
+            for idx, spot in enumerate(gs_results, 1)
+        ]), hide_index=True, use_container_width=True)
 
         st.markdown("##### Golden Spot map")
         map_rows = []
@@ -2775,7 +2474,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                         "html": (
                             "<b>#{rank} {name}</b><br/>"
                             "{address}<br/>"
-                            "Golden Score: {golden_score}<br/>"
+                            "Jumbo evidence score: {golden_score}<br/>"
                             "Confidence: {confidence}"
                         ),
                         "style": {"backgroundColor": "white", "color": "black"},
@@ -2787,27 +2486,21 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
             with st.container(border=True):
                 a, b, c1, d = st.columns([1.7, 0.55, 0.6, 0.65])
                 a.markdown(f"**#{idx} · {spot['label']}**")
-                b.metric("Golden Score", f"{spot['score']:.1f}/100")
+                b.metric("Evidence score", f"{spot['score']:.1f}/100")
                 c1.metric("Confidence", spot["confidence"])
-                d.metric("Retail cluster", spot["retail_count"])
+                d.metric("Traffic factors", spot["retail_count"] if spot["retail_count"] is not None else "Unknown")
                 st.caption(f"Screening status: **{spot.get('screening_status', 'Screening')}**")
 
-                st.markdown(
-                    "**Score breakdown:** "
-                    f"Base {spot.get('score_base', 0):.1f} · "
-                    f"Retail {spot.get('score_retail', 0):.1f} · "
-                    f"Access {spot.get('score_access', 0):.1f} · "
-                    f"City Gravity {spot.get('score_gravity', 0):.1f} · "
-                    f"Corridor {spot.get('score_corridor', 0):.1f} · "
-                    f"Format {spot.get('score_format', 0):.1f} · "
-                    f"Penalty −{spot.get('score_penalty', 0):.1f}"
-                )
+                st.markdown("**Evidence breakdown:** " + " · ".join(
+                    f"{label}: {value:.1f}" if value is not None else f"{label}: unknown"
+                    for label, value in spot["components"].items()
+                ))
                 for reason in spot["reasons"]:
                     st.write("• " + reason)
 
                 st.caption(
-                    "Screening score currently uses retail clustering, access and City Gravity. "
-                    "Traffic, income, rent, competition quality and cannibalization will be added as the model evolves."
+                    "Opening readiness remains unverified: available floor area, lease, CAPEX, loading, "
+                    "warehouse logistics, measured demand and network cannibalisation require due diligence."
                 )
 
                 if st.button(
@@ -2815,7 +2508,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                     key=f"golden_create__{idx}",
                     use_container_width=True,
                 ):
-                    spot_name = f"{gs_city.strip()} · Golden Spot #{idx}"
+                    spot_name = f"{gs_meta.get('query', gs_city)} · {spot['label']}"
                     st.session_state["_pending_new_project"] = True
                     st.session_state["_golden_pending_name"] = spot_name
                     st.session_state["_golden_pending_location"] = (
@@ -2823,7 +2516,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                     )
                     st.rerun()
     elif gs_meta is not None:
-        st.info("No reliable shortlist found from the available open-map data for this search.")
+        st.info("No eligible Jumbo premises found. Traffic generators and background context cannot substitute for a real candidate site.")
 
 
 location = st.text_input(
