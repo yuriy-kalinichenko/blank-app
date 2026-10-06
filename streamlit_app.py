@@ -13,8 +13,9 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
+from map_view import render_map
+from golden_context import map_context
 
 from golden_spot import (
     MODEL_VERSION, TAG_KEYS, category as golden_category, classify_object,
@@ -768,60 +769,10 @@ def build_drive_time_proxy_geojson(lat, lon):
 
 
 def render_drive_time_map(lat, lon, geojson):
-    """Render nested drive-time polygons without crowding the main site map."""
-    palette = {
-        15: ([46, 204, 113, 55], [39, 174, 96, 210]),
-        30: ([52, 152, 219, 42], [41, 128, 185, 210]),
-        40: ([155, 89, 182, 32], [142, 68, 173, 210]),
-    }
-    layers = []
-    features = geojson.get("features", []) if isinstance(geojson, dict) else []
-
-    # Draw larger contours first so the smaller catchments remain legible.
-    for minutes in sorted(DRIVE_TIME_MINUTES, reverse=True):
-        selected = [
-            feature
-            for feature in features
-            if feature.get("properties", {}).get("minutes") == minutes
-        ]
-        if not selected:
-            continue
-        fill_color, line_color = palette[minutes]
-        layers.append(
-            pdk.Layer(
-                "GeoJsonLayer",
-                {"type": "FeatureCollection", "features": selected},
-                filled=True,
-                stroked=True,
-                pickable=True,
-                get_fill_color=fill_color,
-                get_line_color=line_color,
-                line_width_min_pixels=2,
-            )
-        )
-
-    layers.append(
-        pdk.Layer(
-            "ScatterplotLayer",
-            [{"lat": lat, "lon": lon}],
-            get_position="[lon, lat]",
-            get_radius=180,
-            radius_min_pixels=6,
-            pickable=False,
-        )
-    )
-
-    deck = pdk.Deck(
-        layers=layers,
-        initial_view_state=pdk.ViewState(
-            latitude=lat,
-            longitude=lon,
-            zoom=9.2,
-            pitch=0,
-        ),
-        tooltip={"text": "{minutes} min"},
-    )
-    st.pydeck_chart(deck, use_container_width=True)
+    """Render drive-time polygons with a browser-independent 2D map."""
+    render_map([{"lat": lat, "lon": lon, "name": "Selected site", "selected": True}],
+               center=(lat, lon), geojson=geojson, fit=True,
+               title="Drive-time catchment map")
 
 
 def drive_time_geometry(geojson, minutes):
@@ -1611,9 +1562,22 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
     return destinations[:80]
 
 
-def fetch_golden_context(lat, lon):
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_golden_map_tile(bbox):
+    url = "https://api.openstreetmap.org/api/0.6/map.json?" + urllib.parse.urlencode(
+        {"bbox": ",".join(str(value) for value in bbox)})
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    with screening_response(request, timeout=8, pool="map") as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    elements = payload.get("elements")
+    if not isinstance(elements, list):
+        raise ValueError("OSM Map API returned no elements list")
+    return elements
+
+
+def fetch_golden_context(lat, lon, candidates=()):
     """One city-wide snapshot gives every candidate the same evidence coverage."""
-    radius = GOLDEN_SEARCH_RADIUS_KM * 1000
+    radius = (GOLDEN_SEARCH_RADIUS_KM + 2.2) * 1000
     query = f"""
     [out:json][timeout:18];
     (
@@ -1631,7 +1595,14 @@ def fetch_golden_context(lat, lon):
     out center tags;
     """
     rows = []
-    for element in run_overpass_query(query).get("elements", []):
+    try:
+        payload = run_overpass_query(query)
+    except Exception as exc:
+        try:
+            return map_context(candidates, fetch_golden_map_tile)
+        except Exception as fallback_error:
+            raise RuntimeError(f"Overpass unavailable; {fallback_error}") from exc
+    for element in payload.get("elements", []):
         tags = element.get("tags") or {}
         center = element if element.get("lat") is not None else element.get("center", {})
         if center.get("lat") is None or center.get("lon") is None:
@@ -1641,7 +1612,7 @@ def fetch_golden_context(lat, lon):
             "lat": float(center["lat"]), "lon": float(center["lon"]),
             "tags": tags, **{key: tags[key] for key in TAG_KEYS if key in tags},
             "osm_type": element.get("type"), "osm_id": element.get("id"),
-            "discovery_source": "city-map-snapshot",
+            "discovery_source": "OpenStreetMap / Overpass · city surroundings",
         })
     return rows
 
@@ -1649,7 +1620,7 @@ def fetch_golden_context(lat, lon):
 def build_golden_spot_candidates(city_query, max_results=5):
     # Failed public providers must not cost minutes for every discovered mall.
     # Context-local budgets reset on each run and leave full site analysis alone.
-    budget = {"overpass": 40.0, "map": 25.0, "limited": set()}
+    budget = {"overpass": 30.0, "map": 90.0, "limited": set()}
     token = _SCREENING_NETWORK.set(budget)
     try:
         results, meta = _build_golden_spot_candidates(city_query, max_results)
@@ -1672,14 +1643,17 @@ def _build_golden_spot_candidates(city_query, max_results=5):
     except Exception:
         large = []
     try:
-        context = fetch_golden_context(lat, lon)
-        context_available = True
-    except Exception:
-        context, context_available = [], False
-    try:
         broad = search_retail_anchors(city_query, include_overpass=False)
     except Exception:
         broad = []
+    initial_candidates = [row for row in large + broad if classify_object(row)[0] == "candidate"]
+    context_error = None
+    try:
+        context = fetch_golden_context(lat, lon, initial_candidates)
+        context_available = True
+    except Exception as exc:
+        context, context_available = [], False
+        context_error = str(exc)
 
     inventory = []
     by_id = {}
@@ -1690,7 +1664,7 @@ def _build_golden_spot_candidates(city_query, max_results=5):
             row["lat"], row["lon"] = float(row["lat"]), float(row["lon"])
             if not math.isfinite(row["lat"]) or not math.isfinite(row["lon"]):
                 continue
-            if distance_km(lat, lon, row["lat"], row["lon"]) > GOLDEN_SEARCH_RADIUS_KM:
+            if distance_km(lat, lon, row["lat"], row["lon"]) > GOLDEN_SEARCH_RADIUS_KM + 2.2:
                 continue
         except (KeyError, ValueError, TypeError):
             continue
@@ -1708,11 +1682,20 @@ def _build_golden_spot_candidates(city_query, max_results=5):
     for row in sorted(inventory, key=lambda r: (r["name"].casefold(), golden_identity(r))):
         row["kind"] = golden_category(row)
         row["role"], row["classification_reason"] = classify_object(row)
+        if row["role"] == "candidate" and distance_km(lat, lon, row["lat"], row["lon"]) > GOLDEN_SEARCH_RADIUS_KM:
+            # Outside-search malls may contribute traffic but cannot enter the shortlist.
+            row["role"] = "traffic"
         group = groups[row["role"]]
         if any(same_retail_destination(row, old) and row["kind"] == old["kind"] for old in group):
             continue
         group.append(row)
     inventory = [r for group in groups.values() for r in group]
+    local_coverage = any(r.get("discovery_source", "").startswith("OpenStreetMap Map API") for r in context)
+    if local_coverage:
+        # A newly encountered mall needs its own complete 2.2 km coverage first.
+        initial_ids = {golden_identity(r) for r in initial_candidates}
+        groups["candidate"] = [r for r in groups["candidate"] if golden_identity(r) in initial_ids
+                               or any(same_retail_destination(r, old) for old in initial_candidates)]
     scored = [score_candidate(row, inventory, context_available) for row in groups["candidate"]]
     ranked = rank_candidates(scored, len(scored))
     meta = dict(geocoded)
@@ -1723,6 +1706,9 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         "candidate_sites": ranked, "traffic_generators": groups["traffic"],
         "background_context": groups["background"],
         "context_available": context_available,
+        "context_error": context_error,
+        "context_source": next((r.get("discovery_source") for r in context if r.get("discovery_source")),
+                               "OpenStreetMap / Overpass" if context_available else "Unavailable"),
     })
     return ranked[:max(0, max_results)], meta
 
@@ -2387,6 +2373,11 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
         if not gs_meta.get("context_available"):
             st.warning("Surrounding map data is unavailable. Traffic, access and parking remain unknown. The preliminary order uses venue type only; equal scores are ordered by name.")
+        if gs_meta.get("context_available"):
+            st.caption(f"Surroundings source: {gs_meta.get('context_source', 'OpenStreetMap')} · mapped infrastructure, not measured footfall")
+        elif gs_meta.get("context_error"):
+            with st.expander("Surroundings data diagnostics"):
+                st.write(gs_meta["context_error"])
         st.caption("Evidence score: venue type 40 + shopping / family traffic 20 + road / transit access 25 + nearby parking 15. These are screening weights, not a sales forecast. Missing factors remain unknown. City-centre distance does not penalise destination malls.")
         gs_counts = st.columns(3)
         gs_counts[0].metric("Candidate sites", len(gs_meta.get("candidate_sites", [])))
@@ -2437,51 +2428,8 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
             )
         gs_map_df = pd.DataFrame(map_rows)
         if not gs_map_df.empty:
-            map_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=gs_map_df,
-                get_position="[lon, lat]",
-                get_radius=220,
-                get_fill_color=[245, 183, 0, 210],
-                get_line_color=[120, 85, 0, 255],
-                line_width_min_pixels=2,
-                stroked=True,
-                filled=True,
-                pickable=True,
-                auto_highlight=True,
-            )
-            label_layer = pdk.Layer(
-                "TextLayer",
-                data=gs_map_df,
-                get_position="[lon, lat]",
-                get_text="rank",
-                get_size=16,
-                get_color=[20, 20, 20, 255],
-                get_alignment_baseline="'center'",
-                pickable=False,
-            )
-            st.pydeck_chart(
-                pdk.Deck(
-                    map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-                    initial_view_state=pdk.ViewState(
-                        latitude=float(gs_map_df["lat"].mean()),
-                        longitude=float(gs_map_df["lon"].mean()),
-                        zoom=11,
-                        pitch=0,
-                    ),
-                    layers=[map_layer, label_layer],
-                    tooltip={
-                        "html": (
-                            "<b>#{rank} {name}</b><br/>"
-                            "{address}<br/>"
-                            "Jumbo evidence score: {golden_score}<br/>"
-                            "Confidence: {confidence}"
-                        ),
-                        "style": {"backgroundColor": "white", "color": "black"},
-                    },
-                ),
-                use_container_width=True,
-            )
+            render_map(map_rows, center=(float(gs_map_df["lat"].mean()), float(gs_map_df["lon"].mean())),
+                       fit=True, title="Golden Spot candidate map")
         for idx, spot in enumerate(gs_results, start=1):
             with st.container(border=True):
                 a, b, c1, d = st.columns([1.7, 0.55, 0.6, 0.65])
@@ -2673,12 +2621,11 @@ if analysis:
     st.subheader(analysis["query"])
     st.caption(geo["display_name"])
 
-    map_points = [{"lat": geo["lat"], "lon": geo["lon"]}]
+    map_points = [{"lat": geo["lat"], "lon": geo["lon"], "name": analysis["query"], "selected": True}]
     for item in retail:
         if item.get("lat") is not None and item.get("lon") is not None:
-            map_points.append({"lat": item["lat"], "lon": item["lon"]})
-    map_df = pd.DataFrame(map_points)
-    st.map(map_df, zoom=13)
+            map_points.append({"lat": item["lat"], "lon": item["lon"], "name": item.get("name") or "Mapped POI"})
+    render_map(map_points, center=(geo["lat"], geo["lon"]), zoom=13, title="Site and nearby retail map")
 
     st.caption(
         f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
