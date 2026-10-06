@@ -1399,6 +1399,32 @@ def golden_distance_penalty(distance_from_city_km, corridor_score, format_score)
     raw = min(20.0, max(0.0, d - 4.0) * 1.6)
     return raw * (1.0 - 0.65 * protection)
 
+
+def golden_investability_gate(distance_km_value, gravity_count, format_score, retail_count, corridor_score):
+    """Apply a hard screening gate so a road corridor alone cannot become the #1 Jumbo site."""
+    d = float(distance_km_value or 0.0)
+    gravity = int(gravity_count or 0)
+    fmt = float(format_score or 0.0)
+    retail = int(retail_count or 0)
+    corridor = float(corridor_score or 0.0)
+
+    # Far-fringe site with no local gravity needs proof of destination-retail strength.
+    if d > 10 and gravity == 0:
+        if fmt < 10 or retail < 6:
+            return {
+                "cap": 49.0,
+                "status": "Watchlist",
+                "reason": "Far from city centre with zero City Gravity and insufficient destination-retail strength",
+            }
+        if corridor >= 10 and fmt >= 10 and retail >= 6:
+            return {
+                "cap": 65.0,
+                "status": "Needs demand proof",
+                "reason": "Strong corridor, but catchment/demand must be proven before investment ranking",
+            }
+
+    return {"cap": 95.0, "status": "Screening", "reason": ""}
+
 def build_golden_spot_candidates(city_query, max_results=5):
     """Screen a city for strong retail zones with resilient open-data fallbacks."""
     geocoded = geocode_location(city_query)
@@ -1505,6 +1531,14 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     - weak_gravity_penalty,
                 ),
             )
+            investability = golden_investability_gate(
+                city_distance_km,
+                gravity_count,
+                format_component,
+                retail_count,
+                corridor_component,
+            )
+            score = min(score, investability["cap"])
             top_names = sorted(bucket["named"])[:3]
             label = (
                 " / ".join(top_names)
@@ -1520,6 +1554,8 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}",
                 f"Weak-gravity penalty {weak_gravity_penalty:.1f}",
             ]
+            if investability["reason"]:
+                reasons.append("Screening gate: " + investability["reason"])
             if top_names:
                 reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
 
@@ -1543,6 +1579,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     "gravity_count": gravity_count,
                     "reasons": reasons,
                     "confidence": "Medium" if retail_count >= 5 else "Low",
+                    "screening_status": investability["status"],
                     "source": "retail-cluster",
                 }
             )
@@ -1613,6 +1650,14 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 - weak_gravity_penalty,
             ),
         )
+        investability = golden_investability_gate(
+            city_distance_km,
+            gravity_count,
+            format_component,
+            retail_count,
+            corridor_component,
+        )
+        score = min(score, investability["cap"])
         confidence = "Medium" if retail_count >= 4 else "Low"
         reasons = [f"Named retail anchor: {anchor['name']}"]
         if retail_count:
@@ -1630,6 +1675,8 @@ def build_golden_spot_candidates(city_query, max_results=5):
             f"Distance from city centre {city_distance_km:.1f} km; penalty {distance_penalty:.1f}"
         )
         reasons.append(f"Weak-gravity penalty {weak_gravity_penalty:.1f}")
+        if investability["reason"]:
+            reasons.append("Screening gate: " + investability["reason"])
 
         candidates.append(
             {
@@ -1651,6 +1698,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "gravity_count": gravity_count,
                 "reasons": reasons,
                 "confidence": confidence,
+                "screening_status": investability["status"],
                 "source": "named-anchor",
             }
         )
@@ -2404,6 +2452,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                 b.metric("Golden Score", f"{spot['score']:.1f}/100")
                 c1.metric("Confidence", spot["confidence"])
                 d.metric("Retail cluster", spot["retail_count"])
+                st.caption(f"Screening status: **{spot.get('screening_status', 'Screening')}**")
 
                 st.markdown(
                     "**Score breakdown:** "
