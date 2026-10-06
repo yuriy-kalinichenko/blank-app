@@ -217,6 +217,44 @@ def fetch_access_context(lat, lon, radius=1500):
     return list(unique.values())
 
 
+
+@st.cache_data(ttl=3600)
+def fetch_city_gravity_context(lat, lon, radius=1800):
+    """Fetch public-place signals that indicate local urban attraction / city gravity."""
+    query = f"""
+    [out:json][timeout:25];
+    (
+      nwr(around:{radius},{lat},{lon})["amenity"~"cafe|restaurant|fast_food|cinema|theatre"];
+      nwr(around:{radius},{lat},{lon})["tourism"~"attraction|museum|gallery"];
+      nwr(around:{radius},{lat},{lon})["leisure"~"park|sports_centre|fitness_centre"];
+      nwr(around:{radius},{lat},{lon})["amenity"="marketplace"];
+      way(around:{radius},{lat},{lon})["highway"="pedestrian"];
+      nwr(around:{radius},{lat},{lon})["place"~"square|neighbourhood"];
+    );
+    out center tags;
+    """
+    payload = run_overpass_query(query)
+    rows = []
+    for element in payload.get("elements", []):
+        tags = element.get("tags") or {}
+        point_lat = element.get("lat") or element.get("center", {}).get("lat")
+        point_lon = element.get("lon") or element.get("center", {}).get("lon")
+        if point_lat is None or point_lon is None:
+            continue
+        rows.append(
+            {
+                "name": tags.get("name") or "Unnamed",
+                "amenity": tags.get("amenity"),
+                "tourism": tags.get("tourism"),
+                "leisure": tags.get("leisure"),
+                "highway": tags.get("highway"),
+                "place": tags.get("place"),
+                "lat": float(point_lat),
+                "lon": float(point_lon),
+            }
+        )
+    return rows
+
 def bbox_from_radius(lat, lon, radius_m):
     """Approximate a bounding box for a local OSM Map API fallback."""
     lat_delta = (radius_m / 1000.0) / 110.574
@@ -1362,12 +1400,18 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 if distance_km(center_lat, center_lon, float(a_lat), float(a_lon)) <= 1.5:
                     access_count += 1
 
+            try:
+                gravity_count = len(fetch_city_gravity_context(center_lat, center_lon, radius=1800))
+            except Exception:
+                gravity_count = 0
+
+            retail_component = min(40.0, retail_count * 1.6 + named_count * 1.0)
+            access_component = min(20.0, access_count * 1.1)
+            gravity_component = min(20.0, gravity_count * 0.7)
+            base_component = 20.0
             score = min(
-                92.0,
-                45.0
-                + min(retail_count, 20) * 1.8
-                + min(named_count, 10) * 1.2
-                + min(access_count, 15) * 0.8,
+                95.0,
+                base_component + retail_component + access_component + gravity_component,
             )
             top_names = sorted(bucket["named"])[:3]
             label = (
@@ -1378,6 +1422,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
             reasons = [
                 f"{retail_count} retail / commercial objects in the local cluster",
                 f"{access_count} major-road / public-transport access objects within ~1.5 km",
+                f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)",
             ]
             if top_names:
                 reasons.append("Recognisable retail anchors: " + ", ".join(top_names))
@@ -1391,6 +1436,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                     "score": round(score, 1),
                     "retail_count": retail_count,
                     "access_count": access_count,
+                    "gravity_count": gravity_count,
                     "reasons": reasons,
                     "confidence": "Medium" if retail_count >= 5 else "Low",
                     "source": "retail-cluster",
@@ -1430,11 +1476,18 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
         # Even when enrichment calls fail, a named mapped retail anchor is still
         # useful as a low-confidence screening candidate rather than "no result".
+        try:
+            gravity_count = len(fetch_city_gravity_context(a_lat, a_lon, radius=1800))
+        except Exception:
+            gravity_count = 0
+
+        retail_component = min(38.0, retail_count * 1.5)
+        access_component = min(20.0, access_count * 1.1)
+        gravity_component = min(22.0, gravity_count * 0.75)
+        base_component = 20.0
         score = min(
-            88.0,
-            52.0
-            + min(retail_count, 18) * 1.4
-            + min(access_count, 12) * 0.8,
+            95.0,
+            base_component + retail_component + access_component + gravity_component,
         )
         confidence = "Medium" if retail_count >= 4 else "Low"
         reasons = [f"Named retail anchor: {anchor['name']}"]
@@ -1444,6 +1497,9 @@ def build_golden_spot_candidates(city_query, max_results=5):
             reasons.append("Local retail-density enrichment unavailable; anchor retained for screening")
         if access_count:
             reasons.append(f"{access_count} mapped access / transport objects within ~1.5 km")
+        reasons.append(
+            f"{gravity_count} city-gravity signals nearby (food, leisure, tourism, pedestrian activity)"
+        )
 
         candidates.append(
             {
@@ -1454,6 +1510,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
                 "score": round(score, 1),
                 "retail_count": retail_count,
                 "access_count": access_count,
+                "gravity_count": gravity_count,
                 "reasons": reasons,
                 "confidence": confidence,
                 "source": "named-anchor",
@@ -1464,7 +1521,12 @@ def build_golden_spot_candidates(city_query, max_results=5):
     deduped = []
     for candidate in sorted(
         candidates,
-        key=lambda item: (item["score"], item["retail_count"], item["access_count"]),
+        key=lambda item: (
+            item["score"],
+            item["retail_count"],
+            item["access_count"],
+            item.get("gravity_count", 0),
+        ),
         reverse=True,
     ):
         too_close = any(
