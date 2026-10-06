@@ -2156,7 +2156,12 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                 "ScatterplotLayer",
                 data=gs_map_df,
                 get_position="[lon, lat]",
-                get_radius=180,
+                get_radius=220,
+                get_fill_color=[245, 183, 0, 210],
+                get_line_color=[120, 85, 0, 255],
+                line_width_min_pixels=2,
+                stroked=True,
+                filled=True,
                 pickable=True,
                 auto_highlight=True,
             )
@@ -2166,12 +2171,13 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                 get_position="[lon, lat]",
                 get_text="rank",
                 get_size=16,
+                get_color=[20, 20, 20, 255],
                 get_alignment_baseline="'center'",
                 pickable=False,
             )
             st.pydeck_chart(
                 pdk.Deck(
-                    map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+                    map_style="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
                     initial_view_state=pdk.ViewState(
                         latitude=float(gs_map_df["lat"].mean()),
                         longitude=float(gs_map_df["lon"].mean()),
