@@ -59,9 +59,19 @@ if (typeof L !== 'undefined') {
   if(p.golden_score!==undefined) details+='\nEvidence score: '+p.golden_score+' / 100\nConfidence: '+p.confidence;
   marker.bindPopup(text(details)).addTo(map);
  }
- if(data.fit&&bounds.isValid())map.fitBounds(bounds.pad(0.12),{maxZoom:14});
  L.control.scale({imperial:false}).addTo(map);
- new ResizeObserver(()=>map.invalidateSize()).observe(document.getElementById('map'));
+ // Tabs/expanders initially have no width. Fit only once the map is visible.
+ let fitted=false;
+ const resize=()=>{
+  map.invalidateSize();
+  const size=map.getSize();
+  if(!fitted&&size.x>0&&size.y>0){
+   if(data.fit&&bounds.isValid())map.fitBounds(bounds.pad(0.12),{maxZoom:14});
+   fitted=true;
+  }
+ };
+ new ResizeObserver(resize).observe(document.getElementById('map'));
+ resize();
 }
 </script></body></html>'''
 
