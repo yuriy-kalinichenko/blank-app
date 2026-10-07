@@ -1713,6 +1713,25 @@ def _build_golden_spot_candidates(city_query, max_results=5):
     return ranked[:max(0, max_results)], meta
 
 
+def render_project_readiness(placeholder):
+    """Refresh the workspace indicator from this run's current project state."""
+    query = (st.session_state.get("location_query") or "").strip()
+    location_ready = bool(query)
+    current_analysis = st.session_state.get("analysis")
+    analysis_ready = bool(current_analysis and current_analysis.get("query") == query)
+    economics_ready = all(
+        float(st.session_state.get(key) or 0) > 0
+        for key in ("econ_area", "econ_rent", "econ_capex", "econ_sales", "econ_margin")
+    )
+    readiness = sum([location_ready, analysis_ready, economics_ready])
+    placeholder.caption(
+        "Readiness "
+        f"{readiness}/3 · Location {'✓' if location_ready else '—'} · "
+        f"Live analysis {'✓' if analysis_ready else '—'} · "
+        f"Economics {'✓' if economics_ready else '—'}"
+    )
+
+
 for state_key, state_value in BASE_ECON_STATE.items():
     if state_key not in st.session_state:
         st.session_state[state_key] = state_value
@@ -2093,23 +2112,8 @@ with st.container(border=True):
 
         st.caption(f"Projects in library: {len(saved_projects)}")
 
-    location_ready = bool((st.session_state.get("location_query") or "").strip())
-    current_analysis = st.session_state.get("analysis")
-    analysis_ready = bool(
-        current_analysis
-        and current_analysis.get("query") == (st.session_state.get("location_query") or "").strip()
-    )
-    economics_ready = all(
-        float(st.session_state.get(key) or 0) > 0
-        for key in ("econ_area", "econ_rent", "econ_capex", "econ_sales", "econ_margin")
-    )
-    readiness = sum([location_ready, analysis_ready, economics_ready])
-    st.caption(
-        "Readiness "
-        f"{readiness}/3 · Location {'✓' if location_ready else '—'} · "
-        f"Live analysis {'✓' if analysis_ready else '—'} · "
-        f"Economics {'✓' if economics_ready else '—'}"
-    )
+    readiness_placeholder = st.empty()
+    render_project_readiness(readiness_placeholder)
 
 active_project_for_card = st.session_state.get("active_project_name")
 if active_project_for_card and active_project_for_card in saved_projects:
@@ -2486,6 +2490,7 @@ if auto_analyze:
 if analyze or auto_analyze:
     # A failed new request must never leave an old site's results on screen.
     st.session_state.pop("analysis", None)
+    render_project_readiness(readiness_placeholder)
     if not location.strip():
         st.warning("Enter a location first.")
     else:
@@ -2603,6 +2608,9 @@ if analyze or auto_analyze:
             except Exception as exc:
                 st.error(f"Could not locate the site: {exc}")
 
+# Update the existing workspace caption after success or failure, without a
+# second script run or another request to the external data providers.
+render_project_readiness(readiness_placeholder)
 analysis = st.session_state.get("analysis")
 
 if analysis:
