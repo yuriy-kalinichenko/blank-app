@@ -1,4 +1,10 @@
 import pytest
+import sys
+from pathlib import Path
+
+
+# The pytest console entrypoint does not add the repository root to sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 @pytest.fixture(scope="session", autouse=True)
