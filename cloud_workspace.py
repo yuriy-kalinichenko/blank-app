@@ -35,14 +35,13 @@ def render_cloud_workspace(config, build_version):
     session = st.session_state.get("_cloud_session")
     with st.expander("Cloud projects", expanded=not bool(session) or bool(st.session_state.get("_storage_error"))):
         if not session:
-            st.info("Guest mode · projects stay in this session. Sign in for permanent storage and access from another device.")
-            st.caption("This is your Jumbo app account, separate from your Supabase dashboard login. After confirming your email, return here and sign in.")
+            st.caption("Guest mode · export a backup before closing. Sign in to save projects across devices.")
+            st.caption("Use your Jumbo app account. New here? Create an account and confirm your email, then sign in.")
             with st.form("cloud_sign_in", clear_on_submit=True):
                 email = st.text_input("Account email", key="cloud_email", autocomplete="email")
                 password = st.text_input("Account password", type="password", key="cloud_password", autocomplete="current-password")
-                login_col, signup_col = st.columns(2)
-                sign_in = login_col.form_submit_button("Sign in", type="primary")
-                sign_up = signup_col.form_submit_button("Create account")
+                sign_in = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+                sign_up = st.form_submit_button("Create account", use_container_width=True)
             if sign_in or sign_up:
                 if not email.strip() or not password:
                     st.warning("Enter your email and password.")
@@ -106,14 +105,13 @@ def render_cloud_workspace(config, build_version):
         discard = False
         if problem or candidate:
             discard = st.checkbox("I have exported any unsaved projects and can discard local copies.", key="cloud_discard")
-        retry_col, reload_col, logout_col = st.columns(3)
-        if retry_col.button("Retry cloud save", disabled=not bool(problem), key="cloud_retry"):
+        if st.button("Retry cloud save", disabled=not bool(problem), key="cloud_retry"):
             try:
                 save_cloud_library(config, library)
                 st.rerun()
             except CloudError as exc:
                 st.error(str(exc))
-        if reload_col.button("Reload cloud library", disabled=bool(problem) and not discard, key="cloud_reload"):
+        if st.button("Reload cloud library", disabled=bool(problem) and not discard, key="cloud_reload"):
             try:
                 projects, revision = _read_library(CloudClient(config, session))
                 st.session_state.clear()
@@ -123,7 +121,7 @@ def render_cloud_workspace(config, build_version):
                 st.rerun()
             except CloudError as exc:
                 st.error(str(exc))
-        if logout_col.button("Sign out", disabled=bool(problem or candidate) and not discard, key="cloud_logout"):
+        if st.button("Sign out", disabled=bool(problem or candidate) and not discard, key="cloud_logout"):
             try:
                 CloudClient(config, session).sign_out()
             except CloudError:

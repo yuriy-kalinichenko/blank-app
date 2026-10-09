@@ -4,9 +4,21 @@ Retail location intelligence, site-selection and investment-screening applicatio
 
 ## Release candidate
 
-**2026-10-09-v1.1-rc1**
+**2026-10-09-v1.1-rc2**
 
 This release candidate freezes the core product workflow. New large feature layers should be added only after the release-candidate workflow passes real-site validation.
+
+## Workspace design
+
+The light analytical canvas and navy sidebar separate account controls from site work.
+Use the sidebar section links for projects, location analysis, portfolio comparison and discovery.
+Workflow details and portfolio tools are collapsible; backup remains under **Project workspace → Advanced · import / export → Export library**.
+Results appear directly below the location search. Sources, missing data and proxy labels remain visible.
+
+Design references: [CARTO site selection](https://www.carto.com/solutions/site-selection/),
+[Placer.ai retail](https://www.placer.ai/solutions/retail), and
+[ArcGIS Business Analyst](https://www.esri.com/en-us/arcgis/products/arcgis-business-analyst/applications/web-app-standard).
+The layout uses our own styles and native widgets; it includes no vendor artwork or data claims.
 
 ## Core workflow
 
@@ -30,7 +42,7 @@ For durable portability, the **Project library · backup & transfer** section ca
 - merge imported projects into the current library;
 - delete a selected project.
 
-The deployed app uses Supabase for authenticated, durable project storage. Open **Cloud projects**, create a Jumbo app account, confirm your email, then sign in. This account is separate from your Supabase dashboard account. A fresh browser session requires sign-in again.
+The deployed app uses Supabase for authenticated, durable project storage. Open **Cloud projects** in the left sidebar, create a Jumbo app account, confirm your email, then sign in. This account is separate from your Supabase dashboard account. A fresh browser session requires sign-in again.
 
 - Guest projects stay only in the current session; export before closing or refreshing the tab.
 - After sign-in, **Copy guest projects to my account** transfers projects from that open session. Conflicting names receive an import suffix; existing cloud records are preserved.

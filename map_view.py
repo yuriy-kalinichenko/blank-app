@@ -19,18 +19,26 @@ def map_html(points, *, center, zoom=12, geojson=None, fit=False):
     payload = payload.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
     return r'''<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-<style>html,body{margin:0;height:100%;font:14px system-ui}#map{height:100%;min-height:400px}
-#status{position:absolute;z-index:1000;bottom:28px;left:10px;max-width:80%;background:white;padding:5px 9px;border-radius:4px}
+<style>html,body{margin:0;height:100%;font:13px system-ui;color:#183747}#map{height:100%;min-height:400px;border-radius:12px}
+.leaflet-control-zoom{border:1px solid #c7d6dd!important;box-shadow:0 2px 10px #18374714!important;border-radius:8px!important;overflow:hidden}
+.map-legend{position:absolute;top:12px;right:12px;z-index:1000;background:#fff;padding:10px 13px;border:1px solid #d7e2e8;border-radius:8px;box-shadow:0 2px 10px #18374714;font-size:11px;display:flex;gap:14px;align-items:center}
+.map-legend span{display:inline-flex;align-items:center;gap:6px}.map-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;background:#ce734d}.map-legend .selected-dot{background:#087f74}
+#status{position:absolute;z-index:1000;bottom:28px;left:10px;max-width:80%;background:white;padding:6px 10px;border:1px solid #d7e2e8;border-radius:6px;font-size:11px}
 .site-number{background:#ffc938;border:2px solid #795b00;border-radius:50%;text-align:center;line-height:26px;font-weight:700;color:#111}
 .leaflet-popup-content{white-space:pre-line}</style></head><body>
 <div id="map" role="region" aria-label="Interactive location map"></div>
 <div id="status" role="status">Loading map…</div>
+<div id="legend" class="map-legend" aria-label="Map legend"></div>
 <script id="map-data" type="application/json">''' + payload + r'''</script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" onerror="document.getElementById('status').textContent='Map library unavailable. Please reload or check your connection.'"></script>
 <script>
 if (typeof L !== 'undefined') {
  const data=JSON.parse(document.getElementById('map-data').textContent);
  const status=document.getElementById('status');
+ const legend=document.getElementById('legend');
+ // Static legend labels; provider content is always written with textContent.
+ if(data.points.some(p=>p.rank)){legend.textContent='Numbered markers · ranked candidate sites';}
+ else{legend.innerHTML='<span><i class="selected-dot"></i>Selected site</span><span><i></i>Mapped places</span>';}
  const map=L.map('map',{scrollWheelZoom:false}).setView(data.center,data.zoom);
  const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
   maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
@@ -53,7 +61,7 @@ if (typeof L !== 'undefined') {
   const label=(p.rank?'#'+p.rank+' ':'')+(p.name||'Selected site');
   let marker;
   if(p.rank){marker=L.marker(pos,{title:label,icon:L.divIcon({className:'site-number',html:String(Number(p.rank)),iconSize:[28,28],iconAnchor:[14,14]})});}
-  else{marker=L.circleMarker(pos,{radius:p.selected?8:4,color:p.selected?'#b34800':'#176b93',weight:1,fillOpacity:0.8});}
+  else{marker=L.circleMarker(pos,{radius:p.selected?10:5,color:p.selected?'#ffffff':'#a35535',fillColor:p.selected?'#087f74':'#ce734d',weight:p.selected?3:1,fillOpacity:0.95});}
   marker.bindTooltip(text(label));
   let details=label+(p.address?'\n'+p.address:'');
   if(p.golden_score!==undefined) details+='\nEvidence score: '+p.golden_score+' / 100\nConfidence: '+p.confidence;

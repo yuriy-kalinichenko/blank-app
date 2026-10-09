@@ -18,6 +18,10 @@ from map_view import render_map
 from golden_context import map_context
 from cloud_storage import CloudError, load_config as load_cloud_config
 from cloud_workspace import render_cloud_workspace, save_cloud_library
+from ui_theme import (
+    apply_theme, render_sidebar, render_header, render_context,
+    section_anchor, render_analysis_intro, render_empty_analysis,
+)
 
 from golden_spot import (
     MODEL_VERSION, TAG_KEYS, category as golden_category, classify_object,
@@ -30,7 +34,7 @@ from project_library import (
     validate_project_library,
 )
 
-st.set_page_config(page_title="Jumbo Location Analyzer", page_icon="📍", layout="wide")
+st.set_page_config(page_title="Jumbo Location Analyzer", page_icon="📍", layout="wide", initial_sidebar_state="expanded")
 
 try:
     CLOUD_CONFIG = load_cloud_config()
@@ -52,7 +56,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-09-v1.1-rc1"
+BUILD_VERSION = "2026-10-09-v1.1-rc2"
 GOLDEN_SEARCH_RADIUS_KM = 20
 _SCREENING_NETWORK = ContextVar("screening_network", default=None)
 
@@ -1774,13 +1778,15 @@ if "project_library" not in st.session_state:
     st.session_state["project_library"] = load_saved_scenarios()
 
 
-st.title("Jumbo Location Analyzer")
-st.caption(f"Build: {BUILD_VERSION}")
-st.caption(
-    "Site selection & investment screening · catchment, demand, access, competition and economics."
-)
+apply_theme()
+with st.sidebar:
+    render_sidebar(BUILD_VERSION)
+    render_cloud_workspace(CLOUD_CONFIG, BUILD_VERSION)
+    st.divider()
+    st.caption("Export a backup from Project workspace → Advanced · import / export.")
+    st.caption(f"Build: {BUILD_VERSION}")
 
-render_cloud_workspace(CLOUD_CONFIG, BUILD_VERSION)
+render_header()
 
 saved_projects = st.session_state["project_library"]
 
@@ -1862,9 +1868,14 @@ def queue_selected_project_load():
         st.session_state["_pending_project_load"] = selected
 
 
-with st.container(border=True):
+render_context(
+    saved_projects, st.session_state.get("active_project_name"),
+    st.session_state.get("project_stage", "Screening"), CLOUD_CONFIG is not None,
+)
+section_anchor("project-workspace")
+with st.container(key="project_workspace"):
     st.markdown("### Project workspace")
-    st.caption("Select a project and it opens automatically. Create, save, rename or delete from one place.")
+    st.caption("Your sites, commercial assumptions and next decisions — in one place.")
 
     if project_flash:
         if st.session_state.get("_storage_error"):
@@ -1897,22 +1908,23 @@ with st.container(border=True):
         key="project_stage",
     )
 
-    workflow_action, workflow_owner, workflow_deadline = st.columns([1.5, 0.8, 0.7])
-    workflow_action.text_input(
-        "Next action",
-        key="project_next_action",
-        placeholder="Example: Review lease draft with landlord",
-    )
-    workflow_owner.text_input(
-        "Owner",
-        key="project_owner",
-        placeholder="Name / team",
-    )
-    workflow_deadline.text_input(
-        "Deadline",
-        key="project_deadline",
-        placeholder="YYYY-MM-DD",
-    )
+    with st.expander("Workflow · next action, owner & deadline", expanded=False):
+        workflow_action, workflow_owner, workflow_deadline = st.columns([1.5, 0.8, 0.7])
+        workflow_action.text_input(
+            "Next action",
+            key="project_next_action",
+            placeholder="Example: Review lease draft with landlord",
+        )
+        workflow_owner.text_input(
+            "Owner",
+            key="project_owner",
+            placeholder="Name / team",
+        )
+        workflow_deadline.text_input(
+            "Deadline",
+            key="project_deadline",
+            placeholder="YYYY-MM-DD",
+        )
 
     # If a stale session already had a selected project when this UI version loaded,
     # make sure the project is loaded even without a fresh selectbox change event.
@@ -2140,6 +2152,10 @@ with st.container(border=True):
     readiness_placeholder = st.empty()
     render_project_readiness(readiness_placeholder)
 
+section_anchor("site-analysis")
+site_search_slot = st.container(key="site_search")
+analysis_slot = st.container(key="site_results")
+
 active_project_for_card = st.session_state.get("active_project_name")
 if active_project_for_card and active_project_for_card in saved_projects:
     card_project = saved_projects[active_project_for_card]
@@ -2167,7 +2183,7 @@ if active_project_for_card and active_project_for_card in saved_projects:
     card_payback = card_capex / card_ebitda if card_capex > 0 and card_ebitda > 0 else None
     card_sales_density = card_sales / card_area if card_area > 0 else None
 
-    with st.container(border=True):
+    with st.container(key="project_card"):
         st.markdown(f"### Project card · {active_project_for_card}")
         st.caption(
             f"{card_project.get('location', '')} · "
@@ -2223,141 +2239,144 @@ if active_project_for_card and active_project_for_card in saved_projects:
             "Commercial & economics, and Methodology."
         )
 
-comparison_df = build_project_comparison(saved_projects)
-if len(comparison_df) >= 2:
-    st.markdown("### Portfolio comparison")
-    st.caption(
-        "Commercial priority uses saved assumptions only: positive EBITDA first, then faster payback, "
-        "higher EBITDA margin and higher sales density. It is a screening order, not a final investment approval."
-    )
+section_anchor("portfolio")
+with st.expander("Portfolio · comparison & project pipeline", expanded=False):
+    comparison_df = build_project_comparison(saved_projects)
+    if len(comparison_df) >= 2:
+        st.markdown("### Portfolio comparison")
+        st.caption(
+            "Commercial priority uses saved assumptions only: positive EBITDA first, then faster payback, "
+            "higher EBITDA margin and higher sales density. It is a screening order, not a final investment approval."
+        )
 
-    lead = comparison_df.iloc[0]
-    p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Projects compared", len(comparison_df))
-    p2.metric("Commercial priority #1", lead["Project"])
-    p3.metric(
-        "Priority #1 payback",
-        f'{lead["Payback, years"]:.1f} years'
-        if pd.notna(lead["Payback, years"])
-        else "—",
-    )
-    p4.metric(
-        "Priority #1 EBITDA margin",
-        f'{lead["EBITDA margin, %"]:.1f}%'
-        if pd.notna(lead["EBITDA margin, %"])
-        else "—",
-    )
+        lead = comparison_df.iloc[0]
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Projects compared", len(comparison_df))
+        p2.metric("Commercial priority #1", lead["Project"])
+        p3.metric(
+            "Priority #1 payback",
+            f'{lead["Payback, years"]:.1f} years'
+            if pd.notna(lead["Payback, years"])
+            else "—",
+        )
+        p4.metric(
+            "Priority #1 EBITDA margin",
+            f'{lead["EBITDA margin, %"]:.1f}%'
+            if pd.notna(lead["EBITDA margin, %"])
+            else "—",
+        )
 
-    st.dataframe(
-        comparison_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Annual sales": st.column_config.NumberColumn(format="%.0f"),
-            "Sales density / m²": st.column_config.NumberColumn(format="%.0f"),
-            "EBITDA": st.column_config.NumberColumn(format="%.0f"),
-            "EBITDA margin, %": st.column_config.NumberColumn(format="%.1f%%"),
-            "Occupancy cost, %": st.column_config.NumberColumn(format="%.1f%%"),
-            "Payback, years": st.column_config.NumberColumn(format="%.1f"),
-            "CAPEX": st.column_config.NumberColumn(format="%.0f"),
-        },
-    )
-
-    st.markdown("#### Project pipeline")
-    st.caption(
-        "Update the stage after each decision meeting. Cancelled projects stay in the history; "
-        "Delete is reserved for removing a project completely."
-    )
-    header_cols = st.columns([1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7])
-    for col, label in zip(
-        header_cols,
-        ["Project", "Stage", "Next action", "Owner", "Deadline", "Save", "Details"],
-    ):
-        col.caption(label)
-
-    for pipeline_name in comparison_df["Project"].tolist():
-        pipeline_project = saved_projects[pipeline_name]
-        pipeline_key = re.sub(r"[^A-Za-z0-9_-]+", "_", pipeline_name)
-        current_pipeline_stage = pipeline_project.get("stage", "Screening")
-        if current_pipeline_stage not in PROJECT_STAGE_OPTIONS:
-            current_pipeline_stage = "Screening"
-        p_project, p_stage, p_action, p_owner, p_deadline, p_save, p_details = st.columns(
-            [1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7]
-        )
-        p_project.markdown(f"**{pipeline_name}**")
-        pipeline_stage = p_stage.selectbox(
-            "Stage",
-            PROJECT_STAGE_OPTIONS,
-            index=PROJECT_STAGE_OPTIONS.index(current_pipeline_stage),
-            key=f"pipeline_stage__{pipeline_key}",
-            label_visibility="collapsed",
-        )
-        pipeline_action = p_action.text_input(
-            "Next action",
-            value=str(pipeline_project.get("next_action") or ""),
-            key=f"pipeline_action__{pipeline_key}",
-            label_visibility="collapsed",
-        )
-        pipeline_owner = p_owner.text_input(
-            "Owner",
-            value=str(pipeline_project.get("owner") or ""),
-            key=f"pipeline_owner__{pipeline_key}",
-            label_visibility="collapsed",
-        )
-        pipeline_deadline = p_deadline.text_input(
-            "Deadline",
-            value=str(pipeline_project.get("deadline") or ""),
-            key=f"pipeline_deadline__{pipeline_key}",
-            label_visibility="collapsed",
-        )
-        if p_save.button(
-            "Save",
-            key=f"pipeline_save__{pipeline_key}",
+        st.dataframe(
+            comparison_df,
             use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Annual sales": st.column_config.NumberColumn(format="%.0f"),
+                "Sales density / m²": st.column_config.NumberColumn(format="%.0f"),
+                "EBITDA": st.column_config.NumberColumn(format="%.0f"),
+                "EBITDA margin, %": st.column_config.NumberColumn(format="%.1f%%"),
+                "Occupancy cost, %": st.column_config.NumberColumn(format="%.1f%%"),
+                "Payback, years": st.column_config.NumberColumn(format="%.1f"),
+                "CAPEX": st.column_config.NumberColumn(format="%.0f"),
+            },
+        )
+
+        st.markdown("#### Project pipeline")
+        st.caption(
+            "Update the stage after each decision meeting. Cancelled projects stay in the history; "
+            "Delete is reserved for removing a project completely."
+        )
+        header_cols = st.columns([1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7])
+        for col, label in zip(
+            header_cols,
+            ["Project", "Stage", "Next action", "Owner", "Deadline", "Save", "Details"],
         ):
-            pipeline_project["stage"] = pipeline_stage
-            pipeline_project["next_action"] = pipeline_action.strip()
-            pipeline_project["owner"] = pipeline_owner.strip()
-            pipeline_project["deadline"] = pipeline_deadline.strip()
-            pipeline_project["updated_at"] = datetime.now(timezone.utc).isoformat()
-            saved_projects[pipeline_name] = pipeline_project
-            st.session_state["project_library"] = saved_projects
-            try:
-                persist_saved_scenarios(saved_projects)
-            except OSError:
-                pass
-            if st.session_state.get("active_project_name") == pipeline_name:
+            col.caption(label)
+
+        for pipeline_name in comparison_df["Project"].tolist():
+            pipeline_project = saved_projects[pipeline_name]
+            pipeline_key = re.sub(r"[^A-Za-z0-9_-]+", "_", pipeline_name)
+            current_pipeline_stage = pipeline_project.get("stage", "Screening")
+            if current_pipeline_stage not in PROJECT_STAGE_OPTIONS:
+                current_pipeline_stage = "Screening"
+            p_project, p_stage, p_action, p_owner, p_deadline, p_save, p_details = st.columns(
+                [1.45, 1.15, 1.7, 0.85, 0.9, 0.55, 0.7]
+            )
+            p_project.markdown(f"**{pipeline_name}**")
+            pipeline_stage = p_stage.selectbox(
+                "Stage",
+                PROJECT_STAGE_OPTIONS,
+                index=PROJECT_STAGE_OPTIONS.index(current_pipeline_stage),
+                key=f"pipeline_stage__{pipeline_key}",
+                label_visibility="collapsed",
+            )
+            pipeline_action = p_action.text_input(
+                "Next action",
+                value=str(pipeline_project.get("next_action") or ""),
+                key=f"pipeline_action__{pipeline_key}",
+                label_visibility="collapsed",
+            )
+            pipeline_owner = p_owner.text_input(
+                "Owner",
+                value=str(pipeline_project.get("owner") or ""),
+                key=f"pipeline_owner__{pipeline_key}",
+                label_visibility="collapsed",
+            )
+            pipeline_deadline = p_deadline.text_input(
+                "Deadline",
+                value=str(pipeline_project.get("deadline") or ""),
+                key=f"pipeline_deadline__{pipeline_key}",
+                label_visibility="collapsed",
+            )
+            if p_save.button(
+                "Save",
+                key=f"pipeline_save__{pipeline_key}",
+                use_container_width=True,
+            ):
+                pipeline_project["stage"] = pipeline_stage
+                pipeline_project["next_action"] = pipeline_action.strip()
+                pipeline_project["owner"] = pipeline_owner.strip()
+                pipeline_project["deadline"] = pipeline_deadline.strip()
+                pipeline_project["updated_at"] = datetime.now(timezone.utc).isoformat()
+                saved_projects[pipeline_name] = pipeline_project
+                st.session_state["project_library"] = saved_projects
+                try:
+                    persist_saved_scenarios(saved_projects)
+                except OSError:
+                    pass
+                if st.session_state.get("active_project_name") == pipeline_name:
+                    st.session_state["_pending_project_load"] = pipeline_name
+                st.session_state["_pending_project_select"] = pipeline_name
+                st.session_state["_project_flash"] = f"Workflow updated: {pipeline_name} · {pipeline_stage}"
+                st.rerun()
+
+            if p_details.button(
+                "Details",
+                key=f"pipeline_details__{pipeline_key}",
+                use_container_width=True,
+            ):
+                # Queue the project load for the next rerun. Calling
+                # apply_project_to_state() here would mutate widget-backed
+                # session_state keys after those widgets were already rendered,
+                # which Streamlit rejects at runtime.
                 st.session_state["_pending_project_load"] = pipeline_name
-            st.session_state["_pending_project_select"] = pipeline_name
-            st.session_state["_project_flash"] = f"Workflow updated: {pipeline_name} · {pipeline_stage}"
-            st.rerun()
+                st.session_state["_pending_project_select"] = pipeline_name
+                st.session_state["_auto_analyze_project"] = pipeline_name
+                st.session_state["_project_flash"] = f"Opening full analysis: {pipeline_name}"
+                st.rerun()
 
-        if p_details.button(
-            "Details",
-            key=f"pipeline_details__{pipeline_key}",
-            use_container_width=True,
-        ):
-            # Queue the project load for the next rerun. Calling
-            # apply_project_to_state() here would mutate widget-backed
-            # session_state keys after those widgets were already rendered,
-            # which Streamlit rejects at runtime.
-            st.session_state["_pending_project_load"] = pipeline_name
-            st.session_state["_pending_project_select"] = pipeline_name
-            st.session_state["_auto_analyze_project"] = pipeline_name
-            st.session_state["_project_flash"] = f"Opening full analysis: {pipeline_name}"
-            st.rerun()
-
-    chart_data = comparison_df.dropna(subset=["EBITDA"]).set_index("Project")[["EBITDA"]]
-    if not chart_data.empty:
-        st.markdown("#### EBITDA comparison")
-        st.bar_chart(chart_data, use_container_width=True)
-else:
-    st.info(
-        "Portfolio comparison will appear after at least two projects are saved. "
-        "Add the next location and its commercial assumptions to start comparing."
-    )
+        chart_data = comparison_df.dropna(subset=["EBITDA"]).set_index("Project")[["EBITDA"]]
+        if not chart_data.empty:
+            st.markdown("#### EBITDA comparison")
+            st.bar_chart(chart_data, use_container_width=True)
+    else:
+        st.info(
+            "Portfolio comparison will appear after at least two projects are saved. "
+            "Add the next location and its commercial assumptions to start comparing."
+        )
 
 
+section_anchor("discover")
 with st.expander("🌟 Golden Spot workspace", expanded=False):
     st.caption(
         "Jumbo expansion screening: identifiable retail premises, shopping / family traffic, "
@@ -2496,1086 +2515,1095 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         st.info("No eligible Jumbo premises found. Traffic generators and background context cannot substitute for a real candidate site.")
 
 
-location = st.text_input(
-    "Enter address or shopping center",
-    key="location_query",
-    placeholder="Example: Karavan Mall, Kyiv",
-)
+with site_search_slot:
+    render_analysis_intro()
+    location_field, location_action = st.columns([3.5, 1], vertical_alignment="bottom")
+    location = location_field.text_input(
+        "Enter address or shopping center",
+        key="location_query",
+        placeholder="Example: Karavan Mall, Kyiv",
+    )
+    analyze = location_action.button("Analyze location", type="primary", use_container_width=True)
 
-analyze = st.button("Analyze location", type="primary")
 auto_analyze_project = st.session_state.pop("_auto_analyze_project", None)
 auto_analyze = bool(
     auto_analyze_project
     and auto_analyze_project == st.session_state.get("active_project_name")
     and location.strip()
 )
-if auto_analyze:
-    st.info(f"Opening full location analysis for {auto_analyze_project}…")
+with analysis_slot:
+    if auto_analyze:
+        st.info(f"Opening full location analysis for {auto_analyze_project}…")
 
-if analyze or auto_analyze:
-    # A failed new request must never leave an old site's results on screen.
-    st.session_state.pop("analysis", None)
-    render_project_readiness(readiness_placeholder)
-    if not location.strip():
-        st.warning("Enter a location first.")
-    else:
-        with st.spinner("Locating the site and scanning nearby retail..."):
-            try:
-                geo = geocode_location(location.strip())
-                if geo is None:
-                    st.error("Location not found. Try a more complete address.")
-                else:
-                    try:
-                        retail, retail_source, retail_diagnostics = fetch_retail_with_fallback(
-                            geo["lat"], geo["lon"]
-                        )
-                        retail_error = None
-                    except Exception as exc:
-                        # Provider caches already key successful responses by coordinates.
-                        # Session-wide fallback rows can belong to another site or city.
-                        retail = []
-                        retail_source = None
-                        retail_diagnostics = [str(exc)]
-                        retail_error = str(exc)
-
-                    access = []
-                    access_error = None
-                    access_source = None
-                    access_diagnostics = []
-                    try:
-                        access, access_source, access_diagnostics = fetch_access_with_fallback(
-                            geo["lat"], geo["lon"]
-                        )
-                    except Exception as exc:
-                        access = []
-                        access_source = None
-                        access_diagnostics = [str(exc)]
-                        access_error = str(exc)
-
-                    drive_time_error = None
-                    drive_time_mode = "live"
-                    drive_time_source = "Valhalla road-network isochrones"
-                    try:
-                        drive_time_geojson = fetch_drive_time_isochrones(
-                            geo["lat"], geo["lon"]
-                        )
-                    except Exception as exc:
-                        drive_time_error = str(exc)
-                        drive_time_mode = "proxy"
-                        drive_time_source = "Fallback distance proxy (not road-network routing)"
-                        drive_time_geojson = build_drive_time_proxy_geojson(
-                            geo["lat"], geo["lon"]
-                        )
-
-                    population = {}
-                    population_errors = {}
-                    for minutes in DRIVE_TIME_MINUTES:
-                        label = f"{minutes} min"
-                        geometry = drive_time_geometry(drive_time_geojson, minutes)
-                        if geometry is None:
-                            population_errors[label] = "Drive-time geometry unavailable"
-                            continue
+    if analyze or auto_analyze:
+        # A failed new request must never leave an old site's results on screen.
+        st.session_state.pop("analysis", None)
+        render_project_readiness(readiness_placeholder)
+        if not location.strip():
+            st.warning("Enter a location first.")
+        else:
+            with st.spinner("Locating the site and scanning nearby retail..."):
+                try:
+                    geo = geocode_location(location.strip())
+                    if geo is None:
+                        st.error("Location not found. Try a more complete address.")
+                    else:
                         try:
-                            result = worldpop_population_geojson(
-                                geometry,
-                                year=2025,
+                            retail, retail_source, retail_diagnostics = fetch_retail_with_fallback(
+                                geo["lat"], geo["lon"]
                             )
-                            if result.get("total_population") is not None:
-                                result = dict(result)
+                            retail_error = None
+                        except Exception as exc:
+                            # Provider caches already key successful responses by coordinates.
+                            # Session-wide fallback rows can belong to another site or city.
+                            retail = []
+                            retail_source = None
+                            retail_diagnostics = [str(exc)]
+                            retail_error = str(exc)
+
+                        access = []
+                        access_error = None
+                        access_source = None
+                        access_diagnostics = []
+                        try:
+                            access, access_source, access_diagnostics = fetch_access_with_fallback(
+                                geo["lat"], geo["lon"]
+                            )
+                        except Exception as exc:
+                            access = []
+                            access_source = None
+                            access_diagnostics = [str(exc)]
+                            access_error = str(exc)
+
+                        drive_time_error = None
+                        drive_time_mode = "live"
+                        drive_time_source = "Valhalla road-network isochrones"
+                        try:
+                            drive_time_geojson = fetch_drive_time_isochrones(
+                                geo["lat"], geo["lon"]
+                            )
+                        except Exception as exc:
+                            drive_time_error = str(exc)
+                            drive_time_mode = "proxy"
+                            drive_time_source = "Fallback distance proxy (not road-network routing)"
+                            drive_time_geojson = build_drive_time_proxy_geojson(
+                                geo["lat"], geo["lon"]
+                            )
+
+                        population = {}
+                        population_errors = {}
+                        for minutes in DRIVE_TIME_MINUTES:
+                            label = f"{minutes} min"
+                            geometry = drive_time_geometry(drive_time_geojson, minutes)
+                            if geometry is None:
+                                population_errors[label] = "Drive-time geometry unavailable"
+                                continue
+                            try:
+                                result = worldpop_population_geojson(
+                                    geometry,
+                                    year=2025,
+                                )
+                                if result.get("total_population") is not None:
+                                    result = dict(result)
+                                    result["zone_mode"] = drive_time_mode
+                                    result["zone_source"] = drive_time_source
+                                    population[label] = result
+                                else:
+                                    population_errors[label] = "No population value returned"
+                            except Exception as exc:
+                                population_errors[label] = str(exc)
+
+                        children_population = {}
+                        children_population_errors = {}
+                        for minutes in DRIVE_TIME_MINUTES:
+                            label = f"{minutes} min"
+                            geometry = drive_time_geometry(drive_time_geojson, minutes)
+                            if geometry is None:
+                                children_population_errors[label] = "Drive-time geometry unavailable"
+                                continue
+                            try:
+                                result = worldpop_children_geojson(
+                                    geometry,
+                                    year=2025,
+                                    age_range=(0, 18),
+                                )
                                 result["zone_mode"] = drive_time_mode
                                 result["zone_source"] = drive_time_source
-                                population[label] = result
-                            else:
-                                population_errors[label] = "No population value returned"
-                        except Exception as exc:
-                            population_errors[label] = str(exc)
+                                children_population[label] = result
+                            except Exception as exc:
+                                children_population_errors[label] = str(exc)
 
-                    children_population = {}
-                    children_population_errors = {}
-                    for minutes in DRIVE_TIME_MINUTES:
-                        label = f"{minutes} min"
-                        geometry = drive_time_geometry(drive_time_geojson, minutes)
-                        if geometry is None:
-                            children_population_errors[label] = "Drive-time geometry unavailable"
-                            continue
-                        try:
-                            result = worldpop_children_geojson(
-                                geometry,
-                                year=2025,
-                                age_range=(0, 18),
-                            )
-                            result["zone_mode"] = drive_time_mode
-                            result["zone_source"] = drive_time_source
-                            children_population[label] = result
-                        except Exception as exc:
-                            children_population_errors[label] = str(exc)
-
-                    st.session_state["analysis"] = {
-                        "query": location.strip(),
-                        "geo": geo,
-                        "retail": retail,
-                        "retail_source": retail_source,
-                        "retail_diagnostics": retail_diagnostics,
-                        "retail_error": retail_error,
-                        "population": population,
-                        "population_errors": population_errors,
-                        "children_population": children_population,
-                        "children_population_errors": children_population_errors,
-                        "drive_time_geojson": drive_time_geojson,
-                        "drive_time_source": drive_time_source,
-                        "drive_time_mode": drive_time_mode,
-                        "drive_time_error": drive_time_error,
-                        "access": access,
-                        "access_source": access_source,
-                        "access_diagnostics": access_diagnostics,
-                        "access_error": access_error,
-                    }
-            except Exception as exc:
-                st.error(f"Could not locate the site: {exc}")
+                        st.session_state["analysis"] = {
+                            "query": location.strip(),
+                            "geo": geo,
+                            "retail": retail,
+                            "retail_source": retail_source,
+                            "retail_diagnostics": retail_diagnostics,
+                            "retail_error": retail_error,
+                            "population": population,
+                            "population_errors": population_errors,
+                            "children_population": children_population,
+                            "children_population_errors": children_population_errors,
+                            "drive_time_geojson": drive_time_geojson,
+                            "drive_time_source": drive_time_source,
+                            "drive_time_mode": drive_time_mode,
+                            "drive_time_error": drive_time_error,
+                            "access": access,
+                            "access_source": access_source,
+                            "access_diagnostics": access_diagnostics,
+                            "access_error": access_error,
+                        }
+                except Exception as exc:
+                    st.error(f"Could not locate the site: {exc}")
 
 # Update the existing workspace caption after success or failure, without a
 # second script run or another request to the external data providers.
 render_project_readiness(readiness_placeholder)
 analysis = st.session_state.get("analysis")
 
-if analysis:
-    geo = analysis["geo"]
-    retail = analysis["retail"]
-    retail_source = analysis.get("retail_source") or "Unknown"
-    population = analysis.get("population", {})
-    children_population = analysis.get("children_population", {})
-    drive_time_geojson = analysis.get("drive_time_geojson", {})
-    drive_time_source = analysis.get("drive_time_source") or "Unknown"
-    drive_time_mode = analysis.get("drive_time_mode") or "unavailable"
-    access = analysis.get("access", [])
-    access_source = analysis.get("access_source") or "Unknown"
+with analysis_slot:
+    if analysis:
+        geo = analysis["geo"]
+        retail = analysis["retail"]
+        retail_source = analysis.get("retail_source") or "Unknown"
+        population = analysis.get("population", {})
+        children_population = analysis.get("children_population", {})
+        drive_time_geojson = analysis.get("drive_time_geojson", {})
+        drive_time_source = analysis.get("drive_time_source") or "Unknown"
+        drive_time_mode = analysis.get("drive_time_mode") or "unavailable"
+        access = analysis.get("access", [])
+        access_source = analysis.get("access_source") or "Unknown"
 
-    st.divider()
-    st.subheader(analysis["query"])
-    st.caption(geo["display_name"])
+        st.divider()
+        st.subheader(analysis["query"])
+        st.caption(geo["display_name"])
 
-    map_points = [{"lat": geo["lat"], "lon": geo["lon"], "name": analysis["query"], "selected": True}]
-    for item in retail:
-        if item.get("lat") is not None and item.get("lon") is not None:
-            map_points.append({"lat": item["lat"], "lon": item["lon"], "name": item.get("name") or "Mapped POI"})
-    render_map(map_points, center=(geo["lat"], geo["lon"]), zoom=13, title="Site and nearby retail map")
+        map_points = [{"lat": geo["lat"], "lon": geo["lon"], "name": analysis["query"], "selected": True}]
+        for item in retail:
+            if item.get("lat") is not None and item.get("lon") is not None:
+                map_points.append({"lat": item["lat"], "lon": item["lon"], "name": item.get("name") or "Mapped POI"})
+        render_map(map_points, center=(geo["lat"], geo["lon"]), zoom=13, title="Site and nearby retail map")
 
-    st.caption(
-        f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
-        f"Mapped POIs: {max(len(map_points) - 1, 0)} · Retail source: {retail_source}"
-    )
-
-    direct_competitor_types = {
-        "toys",
-        "variety_store",
-        "department_store",
-    }
-    related_retail_types = {
-        "furniture",
-        "houseware",
-        "gift",
-        "stationery",
-    }
-    anchor_types = {"supermarket", "department_store", "mall"}
-
-    for item in retail:
-        item["distance_km"] = distance_km(
-            geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+        st.caption(
+            f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
+            f"Mapped POIs: {max(len(map_points) - 1, 0)} · Retail source: {retail_source}"
         )
 
-    direct_competitors = [
-        r for r in retail
-        if r.get("shop") in direct_competitor_types
-        and (r.get("name") or "").strip().lower() != "unnamed"
-    ]
-    related_retail = [
-        r for r in retail
-        if r.get("shop") in related_retail_types
-        and (r.get("name") or "").strip().lower() != "unnamed"
-    ]
-    anchors = [
-        r for r in retail
-        if r.get("shop") in anchor_types
-        and (r.get("name") or "").strip().lower() != "unnamed"
-    ]
-    parking = [r for r in retail if r.get("amenity") == "parking"]
+        direct_competitor_types = {
+            "toys",
+            "variety_store",
+            "department_store",
+        }
+        related_retail_types = {
+            "furniture",
+            "houseware",
+            "gift",
+            "stationery",
+        }
+        anchor_types = {"supermarket", "department_store", "mall"}
 
-    comp_1km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 1]
-    comp_3km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 3]
-    anchor_1km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 1]
-    anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
-    parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
+        for item in retail:
+            item["distance_km"] = distance_km(
+                geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+            )
 
-    nearest_competitor_km = min(
-        [r["distance_km"] for r in direct_competitors if r.get("distance_km") is not None],
-        default=None,
-    )
-    nearest_competitor_name = None
-    if nearest_competitor_km is not None:
-        nearest_match = min(
-            [r for r in direct_competitors if r.get("distance_km") is not None],
-            key=lambda r: r["distance_km"],
-        )
-        nearest_competitor_name = nearest_match.get("name")
-
-    competition_proximity_points = 0
-    if nearest_competitor_km is not None:
-        if nearest_competitor_km <= 0.5:
-            competition_proximity_points = 40
-        elif nearest_competitor_km <= 1.0:
-            competition_proximity_points = 32
-        elif nearest_competitor_km <= 2.0:
-            competition_proximity_points = 20
-        elif nearest_competitor_km <= 3.0:
-            competition_proximity_points = 10
-
-    competition_1km_points = min(30, len(comp_1km) * 10)
-    competition_outer_points = min(30, max(0, len(comp_3km) - len(comp_1km)) * 3)
-    competition_pressure = min(
-        100,
-        competition_proximity_points + competition_1km_points + competition_outer_points,
-    )
-
-    population_complete = all(
-        population.get(f"{minutes} min", {}).get("total_population") is not None
-        for minutes in DRIVE_TIME_MINUTES
-    )
-    drive_time_live = (
-        drive_time_mode == "live"
-        and len(drive_time_geojson.get("features", [])) >= len(DRIVE_TIME_MINUTES)
-    )
-    children_complete = all(
-        children_population.get(f"{minutes} min", {}).get("children_population") is not None
-        for minutes in DRIVE_TIME_MINUTES
-    )
-
-    for item in access:
-        item["distance_km"] = distance_km(
-            geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
-        )
-
-    # The Map API fallback fetches a wider box to recover complete OSM ways.
-    # Report only representative points inside the radius advertised in the UI.
-    access = [
-        item for item in access
-        if item["distance_km"] is not None and item["distance_km"] <= 1.5
-    ]
-
-    major_road_types = {"motorway", "trunk", "primary", "secondary"}
-    major_roads = [r for r in access if r.get("highway") in major_road_types]
-    transit_stops = [
-        r for r in access
-        if r.get("highway") == "bus_stop"
-        or r.get("public_transport") == "platform"
-        or r.get("railway") in {"tram_stop", "station", "halt", "subway_entrance"}
-    ]
-    named_major_roads = sorted({
-        (r.get("name") or "").strip()
-        for r in major_roads
-        if (r.get("name") or "").strip() and (r.get("name") or "").strip().lower() != "unnamed"
-    })
-    nearest_major_road_km = min(
-        [r["distance_km"] for r in major_roads if r.get("distance_km") is not None],
-        default=None,
-    )
-
-    road_score = 0
-    if nearest_major_road_km is not None:
-        if nearest_major_road_km <= 0.25:
-            road_score = 35
-        elif nearest_major_road_km <= 0.5:
-            road_score = 30
-        elif nearest_major_road_km <= 1.0:
-            road_score = 22
-        else:
-            road_score = 12
-
-    network_score = min(15, len(named_major_roads) * 3)
-    transit_score = min(25, len(transit_stops) * 2)
-    parking_score = min(25, len(parking_1km) * 2)
-    access_score = min(100, road_score + network_score + transit_score + parking_score)
-
-    retail_data_ok = not analysis.get("retail_error")
-    access_data_ok = not analysis.get("access_error")
-    # Parking comes from the retail provider; both sources are needed for the total.
-    access_complete = access_data_ok and retail_data_ok
-    live_modules = (
-        2
-        + (1 if retail_data_ok else 0)
-        + (1 if population_complete else 0)
-        + (1 if access_complete else 0)
-        + (1 if drive_time_live else 0)
-        + (1 if children_complete else 0)
-    )
-
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Live data coverage", f"{live_modules} / 7 modules")
-    c2.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
-    c3.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
-    c4.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
-    c5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
-
-    if analysis.get("retail_error"):
-        st.warning(
-            "Retail providers did not return live data in this run. The app shows 'No data' instead of inventing values."
-        )
-        for diagnostic in analysis.get("retail_diagnostics", []):
-            st.code(diagnostic)
-
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        [
-            "Executive summary",
-            "Catchment & demand",
-            "Traffic & access",
-            "Competition",
-            "Commercial & economics",
-            "Methodology",
+        direct_competitors = [
+            r for r in retail
+            if r.get("shop") in direct_competitor_types
+            and (r.get("name") or "").strip().lower() != "unnamed"
         ]
-    )
+        related_retail = [
+            r for r in retail
+            if r.get("shop") in related_retail_types
+            and (r.get("name") or "").strip().lower() != "unnamed"
+        ]
+        anchors = [
+            r for r in retail
+            if r.get("shop") in anchor_types
+            and (r.get("name") or "").strip().lower() != "unnamed"
+        ]
+        parking = [r for r in retail if r.get("amenity") == "parking"]
 
-    with tab1:
-        st.markdown("### Decision dashboard")
-        st.info(
-            "Decision view combines site geocoding, 15/30/40-minute drive-time catchments, "
-            "population and children demand, retail/competition context, access and commercial economics. "
-            "Measured footfall and a calibrated Jumbo sales forecast remain separate future data/model layers."
+        comp_1km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 1]
+        comp_3km = [r for r in direct_competitors if r.get("distance_km") is not None and r["distance_km"] <= 3]
+        anchor_1km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 1]
+        anchor_3km = [r for r in anchors if r.get("distance_km") is not None and r["distance_km"] <= 3]
+        parking_1km = [r for r in parking if r.get("distance_km") is not None and r["distance_km"] <= 1]
+
+        nearest_competitor_km = min(
+            [r["distance_km"] for r in direct_competitors if r.get("distance_km") is not None],
+            default=None,
+        )
+        nearest_competitor_name = None
+        if nearest_competitor_km is not None:
+            nearest_match = min(
+                [r for r in direct_competitors if r.get("distance_km") is not None],
+                key=lambda r: r["distance_km"],
+            )
+            nearest_competitor_name = nearest_match.get("name")
+
+        competition_proximity_points = 0
+        if nearest_competitor_km is not None:
+            if nearest_competitor_km <= 0.5:
+                competition_proximity_points = 40
+            elif nearest_competitor_km <= 1.0:
+                competition_proximity_points = 32
+            elif nearest_competitor_km <= 2.0:
+                competition_proximity_points = 20
+            elif nearest_competitor_km <= 3.0:
+                competition_proximity_points = 10
+
+        competition_1km_points = min(30, len(comp_1km) * 10)
+        competition_outer_points = min(30, max(0, len(comp_3km) - len(comp_1km)) * 3)
+        competition_pressure = min(
+            100,
+            competition_proximity_points + competition_1km_points + competition_outer_points,
         )
 
-        if retail_data_ok:
-            st.write(
-                f"Competition pressure proxy: **{competition_pressure}/100** · "
-                f"Direct competitors: **{len(comp_1km)} within 1 km**, **{len(comp_3km)} within 3 km**."
-            )
-        else:
-            st.write("Competition pressure proxy: **No data** — retail source unavailable in this run.")
+        population_complete = all(
+            population.get(f"{minutes} min", {}).get("total_population") is not None
+            for minutes in DRIVE_TIME_MINUTES
+        )
+        drive_time_live = (
+            drive_time_mode == "live"
+            and len(drive_time_geojson.get("features", [])) >= len(DRIVE_TIME_MINUTES)
+        )
+        children_complete = all(
+            children_population.get(f"{minutes} min", {}).get("children_population") is not None
+            for minutes in DRIVE_TIME_MINUTES
+        )
 
-        if len(anchor_1km) > 0:
-            st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
-        coverage = pd.DataFrame(
+        for item in access:
+            item["distance_km"] = distance_km(
+                geo["lat"], geo["lon"], item.get("lat"), item.get("lon")
+            )
+
+        # The Map API fallback fetches a wider box to recover complete OSM ways.
+        # Report only representative points inside the radius advertised in the UI.
+        access = [
+            item for item in access
+            if item["distance_km"] is not None and item["distance_km"] <= 1.5
+        ]
+
+        major_road_types = {"motorway", "trunk", "primary", "secondary"}
+        major_roads = [r for r in access if r.get("highway") in major_road_types]
+        transit_stops = [
+            r for r in access
+            if r.get("highway") == "bus_stop"
+            or r.get("public_transport") == "platform"
+            or r.get("railway") in {"tram_stop", "station", "halt", "subway_entrance"}
+        ]
+        named_major_roads = sorted({
+            (r.get("name") or "").strip()
+            for r in major_roads
+            if (r.get("name") or "").strip() and (r.get("name") or "").strip().lower() != "unnamed"
+        })
+        nearest_major_road_km = min(
+            [r["distance_km"] for r in major_roads if r.get("distance_km") is not None],
+            default=None,
+        )
+
+        road_score = 0
+        if nearest_major_road_km is not None:
+            if nearest_major_road_km <= 0.25:
+                road_score = 35
+            elif nearest_major_road_km <= 0.5:
+                road_score = 30
+            elif nearest_major_road_km <= 1.0:
+                road_score = 22
+            else:
+                road_score = 12
+
+        network_score = min(15, len(named_major_roads) * 3)
+        transit_score = min(25, len(transit_stops) * 2)
+        parking_score = min(25, len(parking_1km) * 2)
+        access_score = min(100, road_score + network_score + transit_score + parking_score)
+
+        retail_data_ok = not analysis.get("retail_error")
+        access_data_ok = not analysis.get("access_error")
+        # Parking comes from the retail provider; both sources are needed for the total.
+        access_complete = access_data_ok and retail_data_ok
+        live_modules = (
+            2
+            + (1 if retail_data_ok else 0)
+            + (1 if population_complete else 0)
+            + (1 if access_complete else 0)
+            + (1 if drive_time_live else 0)
+            + (1 if children_complete else 0)
+        )
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Live data coverage", f"{live_modules} / 7 modules")
+        c2.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
+        c3.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
+        c4.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
+        c5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
+
+        if analysis.get("retail_error"):
+            st.warning(
+                "Retail providers did not return live data in this run. The app shows 'No data' instead of inventing values."
+            )
+            for diagnostic in analysis.get("retail_diagnostics", []):
+                st.code(diagnostic)
+
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
             [
-                ["Location / map", "Live", "OpenStreetMap geocoding"],
-                ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", retail_source],
-                ["Drive-time isochrones", "Live" if drive_time_live else "Fallback proxy", drive_time_source],
-                [
-                    "Catchment population",
-                    ("Live in drive-time polygons" if drive_time_live else "Proxy-zone population")
-                    if population_complete
-                    else "Needs retry",
-                    "WorldPop 2025 inside the displayed 15/30/40-minute zones",
-                ],
-                [
-                    "Children 0-18",
-                    "Live" if children_complete else "Needs retry",
-                    "WorldPop age/sex inside the displayed 15/30/40-minute zones",
-                ],
-                ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
-                ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
-                ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
-                ["Economics", "Ready", "User commercial assumptions"],
-            ],
-            columns=["Module", "Status", "Source / method"],
-        )
-        st.dataframe(coverage, use_container_width=True, hide_index=True)
-
-        comparison_df = build_project_comparison(saved_projects)
-        if len(comparison_df) > 1:
-            with st.expander("Compare saved projects", expanded=False):
-                st.caption(
-                    "Commercial comparison uses only the assumptions saved in each project. "
-                    "No hidden ranking or invented market data is applied."
-                )
-                st.dataframe(
-                    comparison_df,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-    with tab2:
-        st.markdown("### Catchment & demand")
-        st.caption(f"Build: {BUILD_VERSION}")
-        st.write(
-            "Primary catchment view: 15-, 30- and 40-minute car reach from the candidate site. "
-            "When live routing is available these are road-network isochrones, not simple radii."
-        )
-
-        render_drive_time_map(
-            geo["lat"],
-            geo["lon"],
-            drive_time_geojson,
-        )
-
-        route_cols = st.columns(3)
-        for idx, minutes in enumerate(DRIVE_TIME_MINUTES):
-            route_cols[idx].metric(f"{minutes}-min drive zone", "Road network" if drive_time_live else "Proxy")
-
-        if drive_time_live:
-            st.success(
-                "Drive-time source: Valhalla / OpenStreetMap road network. "
-                "Contours shown are real routing isochrones for 15, 30 and 40 minutes."
-            )
-        else:
-            st.warning(
-                "Live routing was unavailable, so the map uses clearly labelled distance proxies "
-                "(6/12/16 km for 15/30/40 minutes). These are not road-network isochrones."
-            )
-            if analysis.get("drive_time_error"):
-                with st.expander("Drive-time provider diagnostic", expanded=False):
-                    st.code(analysis["drive_time_error"])
-
-        st.markdown("#### Population inside catchment")
-        st.caption(
-            "WorldPop 2025 is calculated inside the same 15/30/40-minute zones shown on the map. "
-            "When live routing is available, these are real road-network polygons."
-        )
-
-        pop15 = population.get("15 min", {}).get("total_population")
-        pop30 = population.get("30 min", {}).get("total_population")
-        pop40 = population.get("40 min", {}).get("total_population")
-
-        d1, d2, d3 = st.columns(3)
-        d1.metric("15-min population", f"{pop15:,.0f}" if pop15 is not None else "—")
-        d2.metric("30-min population", f"{pop30:,.0f}" if pop30 is not None else "—")
-        d3.metric("40-min population", f"{pop40:,.0f}" if pop40 is not None else "—")
-
-        if population_complete and drive_time_live:
-            st.success(
-                "WorldPop status: population loaded for all three real 15/30/40-minute drive-time polygons."
-            )
-        elif population_complete:
-            st.warning(
-                "WorldPop loaded for all three displayed zones, but routing is in fallback mode, "
-                "so these population values belong to proxy zones rather than true road-network isochrones."
-            )
-        elif population:
-            st.warning(
-                "WorldPop returned population for only some catchment zones. "
-                "The available values are shown below; retry the analysis for the missing zones."
-            )
-        else:
-            st.warning(
-                "WorldPop demographic layer is temporarily unavailable. "
-                "Drive-time, retail and access analysis still works."
-            )
-
-        rows = []
-        for minutes in DRIVE_TIME_MINUTES:
-            label = f"{minutes} min"
-            item = population.get(label, {})
-            if item:
-                rows.append(
-                    {
-                        "Catchment": label,
-                        "Population": round(item.get("total_population", 0)),
-                        "Area, km²": round(item.get("area_km2", 0), 1)
-                        if item.get("area_km2") is not None
-                        else None,
-                        "Density / km²": round(item.get("population_density", 0))
-                        if item.get("population_density") is not None
-                        else None,
-                        "Zone type": "Road-network isochrone"
-                        if item.get("zone_mode") == "live"
-                        else "Fallback proxy",
-                    }
-                )
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-        population_errors = analysis.get("population_errors", {})
-        if not population_complete and population:
-            loaded_labels = ", ".join(sorted(population.keys()))
-            st.warning(f"WorldPop status: partial data loaded for {loaded_labels}.")
-        elif not population:
-            st.error("WorldPop status: no population values loaded.")
-
-        if population_errors:
-            st.markdown("#### WorldPop diagnostics")
-            for label, error in population_errors.items():
-                st.code(f"{label}: {error}")
-        elif not population_complete:
-            st.code("No detailed WorldPop error was captured in this build.")
-
-        st.markdown("#### Children demand")
-        child15 = children_population.get("15 min", {}).get("children_population")
-        child30 = children_population.get("30 min", {}).get("children_population")
-        child40 = children_population.get("40 min", {}).get("children_population")
-
-        ch1, ch2, ch3 = st.columns(3)
-        ch1.metric("Children 0-18 / 15 min", f"{child15:,.0f}" if child15 is not None else "—")
-        ch2.metric("Children 0-18 / 30 min", f"{child30:,.0f}" if child30 is not None else "—")
-        ch3.metric("Children 0-18 / 40 min", f"{child40:,.0f}" if child40 is not None else "—")
-
-        child_rows = []
-        for minutes in DRIVE_TIME_MINUTES:
-            label = f"{minutes} min"
-            total_population = population.get(label, {}).get("total_population")
-            children = children_population.get(label, {}).get("children_population")
-            child_share = (
-                children / total_population * 100
-                if children is not None and total_population
-                else None
-            )
-            if children is not None or total_population is not None:
-                child_rows.append(
-                    {
-                        "Catchment": label,
-                        "Total population": round(total_population)
-                        if total_population is not None
-                        else None,
-                        "Children 0-18": round(children)
-                        if children is not None
-                        else None,
-                        "Children share, %": round(child_share, 1)
-                        if child_share is not None
-                        else None,
-                    }
-                )
-
-        if child_rows:
-            with st.expander("Children profile by catchment", expanded=False):
-                st.caption(
-                    "This is a demographic demand indicator, not a count of households or families."
-                )
-                st.dataframe(
-                    pd.DataFrame(child_rows),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-        children_population_errors = analysis.get("children_population_errors", {})
-        if children_complete:
-            st.success("WorldPop age/sex status: children 0-18 loaded for all three catchments.")
-        elif children_population:
-            loaded_labels = ", ".join(sorted(children_population.keys()))
-            st.warning(f"Children profile status: partial data loaded for {loaded_labels}.")
-        else:
-            st.warning("Children 0-18 demographic layer is temporarily unavailable.")
-
-        if children_population_errors:
-            with st.expander("Children demographic diagnostics", expanded=False):
-                for label, error in children_population_errors.items():
-                    st.code(f"{label}: {error}")
-
-    with tab3:
-        st.markdown("### Traffic & access")
-        st.caption(f"Build: {BUILD_VERSION}")
-        st.caption(f"Access provider used for this run: {access_source}")
-
-        a1, a2, a3, a4, a5 = st.columns(5)
-        a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "No data")
-        a2.metric(
-            "Nearest major road",
-            (
-                f"{nearest_major_road_km:.2f} km"
-                if nearest_major_road_km is not None
-                else ("None in 1.5 km" if access_data_ok else "No data")
-            ),
-        )
-        a3.metric("Named major roads / 1.5 km", len(named_major_roads) if access_data_ok else "No data")
-        a4.metric("Transit stops / 1.5 km", len(transit_stops) if access_data_ok else "No data")
-        a5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
-
-        if access_complete:
-            st.success(
-                f"Access layer is live from {access_source}. The score is an infrastructure proxy, "
-                "not a measured traffic-volume score."
-            )
-        else:
-            st.warning(
-                "Road/transit or parking data is incomplete in this run. Missing data is shown as 'No data' "
-                "and is not treated as a real zero."
-            )
-
-        if named_major_roads:
-            st.write("Major road context: " + ", ".join(named_major_roads[:8]))
-
-        score_table = pd.DataFrame(
-            [
-                ["Major-road proximity", road_score if access_data_ok else "No data", 35],
-                ["Road-network choice", network_score if access_data_ok else "No data", 15],
-                ["Public transport", transit_score if access_data_ok else "No data", 25],
-                ["Parking presence", parking_score if retail_data_ok else "No data", 25],
-            ],
-            columns=["Access component", "Current points", "Maximum weight"],
-        )
-        st.dataframe(score_table, use_container_width=True, hide_index=True)
-
-        st.info(
-            "Car traffic volume and footfall are still intentionally blank. "
-            "Those require a measured mobility/traffic source; we will not infer them from roads alone."
-        )
-
-        if analysis.get("access_error"):
-            st.code(f"Access diagnostics: {analysis['access_error']}")
-        for diagnostic in analysis.get("access_diagnostics", []):
-            st.code(diagnostic)
-
-    with tab4:
-        st.markdown("### Competition & retail fabric")
-        st.caption(f"Build: {BUILD_VERSION}")
-        st.caption(
-            "Direct competitors = named toy, variety and department-store POIs. "
-            "Related home/gift/stationery retail is tracked separately."
-        )
-        st.caption(f"Retail provider used for this run: {retail_source}")
-
-        q1, q2, q3, q4, q5 = st.columns(5)
-        q1.metric("Competition pressure proxy", f"{competition_pressure}/100" if retail_data_ok else "No data")
-        q2.metric(
-            "Nearest direct competitor",
-            (f"{nearest_competitor_km:.2f} km" if nearest_competitor_km is not None else "None in 3 km") if retail_data_ok else "No data",
-        )
-        q3.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
-        q4.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
-        q5.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
-
-        if nearest_competitor_name:
-            st.write(f"Nearest named direct competitor: **{nearest_competitor_name}**")
-
-        pressure_table = pd.DataFrame(
-            [
-                ["Nearest-competitor proximity", competition_proximity_points if retail_data_ok else "No data", 40],
-                ["Direct competitors within 1 km", competition_1km_points if retail_data_ok else "No data", 30],
-                ["Additional direct competitors from 1–3 km", competition_outer_points if retail_data_ok else "No data", 30],
-            ],
-            columns=["Competition component", "Current points", "Maximum weight"],
-        )
-        st.dataframe(pressure_table, use_container_width=True, hide_index=True)
-        st.info(
-            "Higher competition pressure means denser/closer named competitors in the public OSM layer. "
-            "It is a screening proxy, not a market-share forecast."
-        )
-
-        if direct_competitors:
-            comp_rows = []
-            for item in direct_competitors:
-                dist = item.get("distance_km")
-                comp_rows.append(
-                    {
-                        "Name": item["name"],
-                        "Type": item.get("shop") or "retail",
-                        "Distance, km": round(dist, 2) if dist is not None else None,
-                    }
-                )
-            comp_df = pd.DataFrame(comp_rows).sort_values(
-                "Distance, km", na_position="last"
-            )
-            st.dataframe(comp_df, use_container_width=True, hide_index=True)
-        elif retail_data_ok:
-            st.write(f"No named direct competitor POIs were found within 3 km in the {retail_source} retail scan.")
-        else:
-            st.warning("Competition data is unavailable in this run; the app will retry the backup source on the next analysis.")
-        st.caption(
-            f"Related retail POIs in the scan: {len(related_retail)}. "
-            f"Retail anchors in 1 km: {len(anchor_1km)}. "
-            "This remains an initial public-data scan, not yet the final competitor/cannibalization model."
-        )
-
-    with tab5:
-        st.markdown("### Commercial & economics")
-        st.caption(f"Build: {BUILD_VERSION}")
-        st.info(
-            "This module uses commercial assumptions entered by the user. "
-            "It does not invent rent, CAPEX, sales or margin from public map data."
-        )
-
-        active_project = st.session_state.get("active_project_name")
-        if active_project:
-            st.caption(f"Active project: {active_project}")
-        else:
-            st.caption("Active project: unsaved working copy")
-
-        active_saved = saved_projects.get(active_project, {}) if active_project else {}
-        is_karavan = bool(
-            active_project
-            and (
-                "karavan" in active_project.lower()
-                or "karavan" in str(active_saved.get("location") or "").lower()
-            )
-        )
-
-        if is_karavan:
-            required_saved_keys = ("area", "rent", "capex", "annual_sales", "gross_margin")
-            if not all(float(active_saved.get(key) or 0) > 0 for key in required_saved_keys):
-                active_saved.update(
-                    {
-                        "currency": "EUR",
-                        "area": 4500.0,
-                        "rent": 5.0,
-                        "capex": 2500000.0,
-                        "annual_sales": 5000000.0,
-                        "gross_margin": 50.0,
-                        "payroll": 250000.0,
-                        "utilities": 120000.0,
-                        "logistics": 20000.0,
-                        "other_opex": 100000.0,
-                        "schema_version": 2,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-                saved_projects[active_project] = active_saved
-                st.session_state["project_library"] = saved_projects
-                try:
-                    persist_saved_scenarios(saved_projects)
-                except OSError:
-                    pass
-
-        st.caption(
-            "Enter the commercial assumptions directly below. Results recalculate automatically, "
-            "and Save to project stores the values inside the current project."
-        )
-
-        project_key = re.sub(r"[^a-zA-Z0-9_-]+", "_", active_project or "working_copy")
-        stored_currency = str(active_saved.get("currency") or "EUR")
-        if stored_currency not in {"EUR", "USD", "UAH"}:
-            stored_currency = "EUR"
-
-        currency = st.selectbox(
-            "Currency",
-            ["EUR", "USD", "UAH"],
-            index=["EUR", "USD", "UAH"].index(stored_currency),
-            key=f"commercial_currency__{project_key}",
-        )
-        currency_symbol = {"EUR": "€", "USD": "$", "UAH": "₴"}[currency]
-
-        e1, e2, e3 = st.columns(3)
-        area = e1.number_input(
-            "Store area, m²",
-            min_value=0.0,
-            value=float(active_saved.get("area") or 0),
-            step=100.0,
-            key=f"commercial_area__{project_key}",
-        )
-        rent = e2.number_input(
-            f"Rent, {currency}/m²/month",
-            min_value=0.0,
-            value=float(active_saved.get("rent") or 0),
-            step=0.5,
-            key=f"commercial_rent__{project_key}",
-        )
-        capex = e3.number_input(
-            f"CAPEX, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("capex") or 0),
-            step=10000.0,
-            key=f"commercial_capex__{project_key}",
-        )
-
-        e4, e5, e6 = st.columns(3)
-        annual_sales = e4.number_input(
-            f"Expected annual sales, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("annual_sales") or 0),
-            step=100000.0,
-            key=f"commercial_sales__{project_key}",
-        )
-        gross_margin = e5.number_input(
-            "Gross margin, %",
-            min_value=0.0,
-            max_value=100.0,
-            value=float(active_saved.get("gross_margin") or 0),
-            step=0.5,
-            key=f"commercial_margin__{project_key}",
-        )
-        payroll = e6.number_input(
-            f"Annual payroll, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("payroll") or 0),
-            step=10000.0,
-            key=f"commercial_payroll__{project_key}",
-        )
-
-        e7, e8, e9 = st.columns(3)
-        utilities = e7.number_input(
-            f"Utilities & maintenance / year, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("utilities") or 0),
-            step=5000.0,
-            key=f"commercial_utilities__{project_key}",
-        )
-        logistics = e8.number_input(
-            f"Local logistics / year, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("logistics") or 0),
-            step=5000.0,
-            key=f"commercial_logistics__{project_key}",
-        )
-        other_opex = e9.number_input(
-            f"Other annual OPEX, {currency}",
-            min_value=0.0,
-            value=float(active_saved.get("other_opex") or 0),
-            step=5000.0,
-            key=f"commercial_other_opex__{project_key}",
-        )
-
-        save_commercial_clicked = st.button(
-            "Save to project",
-            type="primary",
-            use_container_width=True,
-            key=f"commercial_save_to_project__{project_key}",
-            disabled=not bool(active_project),
-        )
-        if save_commercial_clicked:
-            required_commercial = {
-                "Store area": area,
-                "Rent": rent,
-                "CAPEX": capex,
-                "Annual sales": annual_sales,
-                "Gross margin": gross_margin,
-            }
-            missing_commercial = [
-                label for label, value in required_commercial.items() if float(value or 0) <= 0
+                "Executive summary",
+                "Catchment & demand",
+                "Traffic & access",
+                "Competition",
+                "Commercial & economics",
+                "Methodology",
             ]
-            if missing_commercial:
-                st.error(
-                    "Commercial data was not saved. Fill the required fields first: "
-                    + ", ".join(missing_commercial)
-                    + "."
+        )
+
+        with tab1:
+            st.markdown("### Decision dashboard")
+            st.info(
+                "Decision view combines site geocoding, 15/30/40-minute drive-time catchments, "
+                "population and children demand, retail/competition context, access and commercial economics. "
+                "Measured footfall and a calibrated Jumbo sales forecast remain separate future data/model layers."
+            )
+
+            if retail_data_ok:
+                st.write(
+                    f"Competition pressure proxy: **{competition_pressure}/100** · "
+                    f"Direct competitors: **{len(comp_1km)} within 1 km**, **{len(comp_3km)} within 3 km**."
                 )
             else:
-                project_record = dict(saved_projects.get(active_project, {}))
-                project_record.update(
-                    {
-                        "currency": currency,
-                        "area": float(area),
-                        "rent": float(rent),
-                        "capex": float(capex),
-                        "annual_sales": float(annual_sales),
-                        "gross_margin": float(gross_margin),
-                        "payroll": float(payroll),
-                        "utilities": float(utilities),
-                        "logistics": float(logistics),
-                        "other_opex": float(other_opex),
-                        "schema_version": 2,
-                        "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-                saved_projects[active_project] = project_record
-                st.session_state["project_library"] = saved_projects
-                try:
-                    persist_saved_scenarios(saved_projects)
-                    st.success(f"Commercial data saved to {active_project}.")
-                except OSError:
-                    st.warning(
-                        "Commercial data is only in this session. "
-                        + st.session_state.get("_storage_error", "Export a backup and retry saving.")
+                st.write("Competition pressure proxy: **No data** — retail source unavailable in this run.")
+
+            if len(anchor_1km) > 0:
+                st.write(f"Retail context: {len(anchor_1km)} anchor-format retail POI(s) detected within 1 km.")
+            coverage = pd.DataFrame(
+                [
+                    ["Location / map", "Live", "OpenStreetMap geocoding"],
+                    ["Nearby retail / competition", "Live" if retail_data_ok else "Needs retry", retail_source],
+                    ["Drive-time isochrones", "Live" if drive_time_live else "Fallback proxy", drive_time_source],
+                    [
+                        "Catchment population",
+                        ("Live in drive-time polygons" if drive_time_live else "Proxy-zone population")
+                        if population_complete
+                        else "Needs retry",
+                        "WorldPop 2025 inside the displayed 15/30/40-minute zones",
+                    ],
+                    [
+                        "Children 0-18",
+                        "Live" if children_complete else "Needs retry",
+                        "WorldPop age/sex inside the displayed 15/30/40-minute zones",
+                    ],
+                    ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
+                    ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
+                    ["Sales forecast", "Model layer", "Jumbo benchmarks + local drivers"],
+                    ["Economics", "Ready", "User commercial assumptions"],
+                ],
+                columns=["Module", "Status", "Source / method"],
+            )
+            st.dataframe(coverage, use_container_width=True, hide_index=True)
+
+            comparison_df = build_project_comparison(saved_projects)
+            if len(comparison_df) > 1:
+                with st.expander("Compare saved projects", expanded=False):
+                    st.caption(
+                        "Commercial comparison uses only the assumptions saved in each project. "
+                        "No hidden ranking or invented market data is applied."
+                    )
+                    st.dataframe(
+                        comparison_df,
+                        use_container_width=True,
+                        hide_index=True,
                     )
 
-        annual_rent = area * rent * 12
-        gross_profit = annual_sales * gross_margin / 100
-        total_fixed_opex = annual_rent + payroll + utilities + logistics + other_opex
-        ebitda = gross_profit - total_fixed_opex
+        with tab2:
+            st.markdown("### Catchment & demand")
+            st.caption(f"Build: {BUILD_VERSION}")
+            st.write(
+                "Primary catchment view: 15-, 30- and 40-minute car reach from the candidate site. "
+                "When live routing is available these are road-network isochrones, not simple radii."
+            )
 
-        sales_density = annual_sales / area if area > 0 else None
-        occupancy_cost = annual_rent / annual_sales * 100 if annual_sales > 0 else None
-        ebitda_margin = ebitda / annual_sales * 100 if annual_sales > 0 else None
-        payback = capex / ebitda if ebitda > 0 and capex > 0 else None
+            render_drive_time_map(
+                geo["lat"],
+                geo["lon"],
+                drive_time_geojson,
+            )
 
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Annual rent", f"{currency_symbol}{annual_rent:,.0f}")
-        k2.metric("Gross profit", f"{currency_symbol}{gross_profit:,.0f}")
-        k3.metric("Estimated EBITDA", f"{currency_symbol}{ebitda:,.0f}")
-        k4.metric(
-            "EBITDA margin",
-            f"{ebitda_margin:.1f}%" if ebitda_margin is not None else "—",
-        )
+            route_cols = st.columns(3)
+            for idx, minutes in enumerate(DRIVE_TIME_MINUTES):
+                route_cols[idx].metric(f"{minutes}-min drive zone", "Road network" if drive_time_live else "Proxy")
 
-        k5, k6, k7, k8 = st.columns(4)
-        k5.metric(
-            "Sales density",
-            f"{currency_symbol}{sales_density:,.0f}/m²" if sales_density is not None else "—",
-        )
-        k6.metric(
-            "Occupancy cost",
-            f"{occupancy_cost:.1f}%" if occupancy_cost is not None else "—",
-        )
-        k7.metric(
-            "CAPEX payback",
-            f"{payback:.1f} years" if payback is not None else "—",
-        )
-        k8.metric("Total fixed OPEX", f"{currency_symbol}{total_fixed_opex:,.0f}")
+            if drive_time_live:
+                st.success(
+                    "Drive-time source: Valhalla / OpenStreetMap road network. "
+                    "Contours shown are real routing isochrones for 15, 30 and 40 minutes."
+                )
+            else:
+                st.warning(
+                    "Live routing was unavailable, so the map uses clearly labelled distance proxies "
+                    "(6/12/16 km for 15/30/40 minutes). These are not road-network isochrones."
+                )
+                if analysis.get("drive_time_error"):
+                    with st.expander("Drive-time provider diagnostic", expanded=False):
+                        st.code(analysis["drive_time_error"])
 
-        assumptions_complete = (
-            area > 0
-            and rent > 0
-            and annual_sales > 0
-            and gross_margin > 0
-        )
+            st.markdown("#### Population inside catchment")
+            st.caption(
+                "WorldPop 2025 is calculated inside the same 15/30/40-minute zones shown on the map. "
+                "When live routing is available, these are real road-network polygons."
+            )
 
-        if assumptions_complete:
-            scenarios = []
-            for scenario, sales_factor in [
-                ("Conservative", 0.85),
-                ("Base", 1.00),
-                ("Upside", 1.15),
-            ]:
-                scenario_sales = annual_sales * sales_factor
-                scenario_gp = scenario_sales * gross_margin / 100
-                scenario_ebitda = scenario_gp - total_fixed_opex
-                scenario_margin = (
-                    scenario_ebitda / scenario_sales * 100
-                    if scenario_sales > 0
+            pop15 = population.get("15 min", {}).get("total_population")
+            pop30 = population.get("30 min", {}).get("total_population")
+            pop40 = population.get("40 min", {}).get("total_population")
+
+            d1, d2, d3 = st.columns(3)
+            d1.metric("15-min population", f"{pop15:,.0f}" if pop15 is not None else "—")
+            d2.metric("30-min population", f"{pop30:,.0f}" if pop30 is not None else "—")
+            d3.metric("40-min population", f"{pop40:,.0f}" if pop40 is not None else "—")
+
+            if population_complete and drive_time_live:
+                st.success(
+                    "WorldPop status: population loaded for all three real 15/30/40-minute drive-time polygons."
+                )
+            elif population_complete:
+                st.warning(
+                    "WorldPop loaded for all three displayed zones, but routing is in fallback mode, "
+                    "so these population values belong to proxy zones rather than true road-network isochrones."
+                )
+            elif population:
+                st.warning(
+                    "WorldPop returned population for only some catchment zones. "
+                    "The available values are shown below; retry the analysis for the missing zones."
+                )
+            else:
+                st.warning(
+                    "WorldPop demographic layer is temporarily unavailable. "
+                    "Drive-time, retail and access analysis still works."
+                )
+
+            rows = []
+            for minutes in DRIVE_TIME_MINUTES:
+                label = f"{minutes} min"
+                item = population.get(label, {})
+                if item:
+                    rows.append(
+                        {
+                            "Catchment": label,
+                            "Population": round(item.get("total_population", 0)),
+                            "Area, km²": round(item.get("area_km2", 0), 1)
+                            if item.get("area_km2") is not None
+                            else None,
+                            "Density / km²": round(item.get("population_density", 0))
+                            if item.get("population_density") is not None
+                            else None,
+                            "Zone type": "Road-network isochrone"
+                            if item.get("zone_mode") == "live"
+                            else "Fallback proxy",
+                        }
+                    )
+            if rows:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            population_errors = analysis.get("population_errors", {})
+            if not population_complete and population:
+                loaded_labels = ", ".join(sorted(population.keys()))
+                st.warning(f"WorldPop status: partial data loaded for {loaded_labels}.")
+            elif not population:
+                st.error("WorldPop status: no population values loaded.")
+
+            if population_errors:
+                st.markdown("#### WorldPop diagnostics")
+                for label, error in population_errors.items():
+                    st.code(f"{label}: {error}")
+            elif not population_complete:
+                st.code("No detailed WorldPop error was captured in this build.")
+
+            st.markdown("#### Children demand")
+            child15 = children_population.get("15 min", {}).get("children_population")
+            child30 = children_population.get("30 min", {}).get("children_population")
+            child40 = children_population.get("40 min", {}).get("children_population")
+
+            ch1, ch2, ch3 = st.columns(3)
+            ch1.metric("Children 0-18 / 15 min", f"{child15:,.0f}" if child15 is not None else "—")
+            ch2.metric("Children 0-18 / 30 min", f"{child30:,.0f}" if child30 is not None else "—")
+            ch3.metric("Children 0-18 / 40 min", f"{child40:,.0f}" if child40 is not None else "—")
+
+            child_rows = []
+            for minutes in DRIVE_TIME_MINUTES:
+                label = f"{minutes} min"
+                total_population = population.get(label, {}).get("total_population")
+                children = children_population.get(label, {}).get("children_population")
+                child_share = (
+                    children / total_population * 100
+                    if children is not None and total_population
                     else None
                 )
-                scenario_payback = (
-                    capex / scenario_ebitda
-                    if capex > 0 and scenario_ebitda > 0
-                    else None
+                if children is not None or total_population is not None:
+                    child_rows.append(
+                        {
+                            "Catchment": label,
+                            "Total population": round(total_population)
+                            if total_population is not None
+                            else None,
+                            "Children 0-18": round(children)
+                            if children is not None
+                            else None,
+                            "Children share, %": round(child_share, 1)
+                            if child_share is not None
+                            else None,
+                        }
+                    )
+
+            if child_rows:
+                with st.expander("Children profile by catchment", expanded=False):
+                    st.caption(
+                        "This is a demographic demand indicator, not a count of households or families."
+                    )
+                    st.dataframe(
+                        pd.DataFrame(child_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+            children_population_errors = analysis.get("children_population_errors", {})
+            if children_complete:
+                st.success("WorldPop age/sex status: children 0-18 loaded for all three catchments.")
+            elif children_population:
+                loaded_labels = ", ".join(sorted(children_population.keys()))
+                st.warning(f"Children profile status: partial data loaded for {loaded_labels}.")
+            else:
+                st.warning("Children 0-18 demographic layer is temporarily unavailable.")
+
+            if children_population_errors:
+                with st.expander("Children demographic diagnostics", expanded=False):
+                    for label, error in children_population_errors.items():
+                        st.code(f"{label}: {error}")
+
+        with tab3:
+            st.markdown("### Traffic & access")
+            st.caption(f"Build: {BUILD_VERSION}")
+            st.caption(f"Access provider used for this run: {access_source}")
+
+            a1, a2, a3, a4, a5 = st.columns(5)
+            a1.metric("Access proxy score", f"{access_score}/100" if access_complete else "No data")
+            a2.metric(
+                "Nearest major road",
+                (
+                    f"{nearest_major_road_km:.2f} km"
+                    if nearest_major_road_km is not None
+                    else ("None in 1.5 km" if access_data_ok else "No data")
+                ),
+            )
+            a3.metric("Named major roads / 1.5 km", len(named_major_roads) if access_data_ok else "No data")
+            a4.metric("Transit stops / 1.5 km", len(transit_stops) if access_data_ok else "No data")
+            a5.metric("Parking POIs / 1 km", len(parking_1km) if retail_data_ok else "No data")
+
+            if access_complete:
+                st.success(
+                    f"Access layer is live from {access_source}. The score is an infrastructure proxy, "
+                    "not a measured traffic-volume score."
                 )
-                scenarios.append(
-                    {
-                        "Scenario": scenario,
-                        f"Sales ({currency})": round(scenario_sales),
-                        f"EBITDA ({currency})": round(scenario_ebitda),
-                        "EBITDA margin": (
-                            f"{scenario_margin:.1f}%"
-                            if scenario_margin is not None
-                            else "—"
-                        ),
-                        "CAPEX payback": (
-                            f"{scenario_payback:.1f} years"
-                            if scenario_payback is not None
-                            else "—"
-                        ),
-                    }
+            else:
+                st.warning(
+                    "Road/transit or parking data is incomplete in this run. Missing data is shown as 'No data' "
+                    "and is not treated as a real zero."
                 )
 
-            st.markdown("#### Sales sensitivity")
+            if named_major_roads:
+                st.write("Major road context: " + ", ".join(named_major_roads[:8]))
+
+            score_table = pd.DataFrame(
+                [
+                    ["Major-road proximity", road_score if access_data_ok else "No data", 35],
+                    ["Road-network choice", network_score if access_data_ok else "No data", 15],
+                    ["Public transport", transit_score if access_data_ok else "No data", 25],
+                    ["Parking presence", parking_score if retail_data_ok else "No data", 25],
+                ],
+                columns=["Access component", "Current points", "Maximum weight"],
+            )
+            st.dataframe(score_table, use_container_width=True, hide_index=True)
+
+            st.info(
+                "Car traffic volume and footfall are still intentionally blank. "
+                "Those require a measured mobility/traffic source; we will not infer them from roads alone."
+            )
+
+            if analysis.get("access_error"):
+                st.code(f"Access diagnostics: {analysis['access_error']}")
+            for diagnostic in analysis.get("access_diagnostics", []):
+                st.code(diagnostic)
+
+        with tab4:
+            st.markdown("### Competition & retail fabric")
+            st.caption(f"Build: {BUILD_VERSION}")
+            st.caption(
+                "Direct competitors = named toy, variety and department-store POIs. "
+                "Related home/gift/stationery retail is tracked separately."
+            )
+            st.caption(f"Retail provider used for this run: {retail_source}")
+
+            q1, q2, q3, q4, q5 = st.columns(5)
+            q1.metric("Competition pressure proxy", f"{competition_pressure}/100" if retail_data_ok else "No data")
+            q2.metric(
+                "Nearest direct competitor",
+                (f"{nearest_competitor_km:.2f} km" if nearest_competitor_km is not None else "None in 3 km") if retail_data_ok else "No data",
+            )
+            q3.metric("Direct competitors / 1 km", len(comp_1km) if retail_data_ok else "No data")
+            q4.metric("Direct competitors / 3 km", len(comp_3km) if retail_data_ok else "No data")
+            q5.metric("Retail anchors / 3 km", len(anchor_3km) if retail_data_ok else "No data")
+
+            if nearest_competitor_name:
+                st.write(f"Nearest named direct competitor: **{nearest_competitor_name}**")
+
+            pressure_table = pd.DataFrame(
+                [
+                    ["Nearest-competitor proximity", competition_proximity_points if retail_data_ok else "No data", 40],
+                    ["Direct competitors within 1 km", competition_1km_points if retail_data_ok else "No data", 30],
+                    ["Additional direct competitors from 1–3 km", competition_outer_points if retail_data_ok else "No data", 30],
+                ],
+                columns=["Competition component", "Current points", "Maximum weight"],
+            )
+            st.dataframe(pressure_table, use_container_width=True, hide_index=True)
+            st.info(
+                "Higher competition pressure means denser/closer named competitors in the public OSM layer. "
+                "It is a screening proxy, not a market-share forecast."
+            )
+
+            if direct_competitors:
+                comp_rows = []
+                for item in direct_competitors:
+                    dist = item.get("distance_km")
+                    comp_rows.append(
+                        {
+                            "Name": item["name"],
+                            "Type": item.get("shop") or "retail",
+                            "Distance, km": round(dist, 2) if dist is not None else None,
+                        }
+                    )
+                comp_df = pd.DataFrame(comp_rows).sort_values(
+                    "Distance, km", na_position="last"
+                )
+                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+            elif retail_data_ok:
+                st.write(f"No named direct competitor POIs were found within 3 km in the {retail_source} retail scan.")
+            else:
+                st.warning("Competition data is unavailable in this run; the app will retry the backup source on the next analysis.")
+            st.caption(
+                f"Related retail POIs in the scan: {len(related_retail)}. "
+                f"Retail anchors in 1 km: {len(anchor_1km)}. "
+                "This remains an initial public-data scan, not yet the final competitor/cannibalization model."
+            )
+
+        with tab5:
+            st.markdown("### Commercial & economics")
+            st.caption(f"Build: {BUILD_VERSION}")
+            st.info(
+                "This module uses commercial assumptions entered by the user. "
+                "It does not invent rent, CAPEX, sales or margin from public map data."
+            )
+
+            active_project = st.session_state.get("active_project_name")
+            if active_project:
+                st.caption(f"Active project: {active_project}")
+            else:
+                st.caption("Active project: unsaved working copy")
+
+            active_saved = saved_projects.get(active_project, {}) if active_project else {}
+            is_karavan = bool(
+                active_project
+                and (
+                    "karavan" in active_project.lower()
+                    or "karavan" in str(active_saved.get("location") or "").lower()
+                )
+            )
+
+            if is_karavan:
+                required_saved_keys = ("area", "rent", "capex", "annual_sales", "gross_margin")
+                if not all(float(active_saved.get(key) or 0) > 0 for key in required_saved_keys):
+                    active_saved.update(
+                        {
+                            "currency": "EUR",
+                            "area": 4500.0,
+                            "rent": 5.0,
+                            "capex": 2500000.0,
+                            "annual_sales": 5000000.0,
+                            "gross_margin": 50.0,
+                            "payroll": 250000.0,
+                            "utilities": 120000.0,
+                            "logistics": 20000.0,
+                            "other_opex": 100000.0,
+                            "schema_version": 2,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    saved_projects[active_project] = active_saved
+                    st.session_state["project_library"] = saved_projects
+                    try:
+                        persist_saved_scenarios(saved_projects)
+                    except OSError:
+                        pass
+
+            st.caption(
+                "Enter the commercial assumptions directly below. Results recalculate automatically, "
+                "and Save to project stores the values inside the current project."
+            )
+
+            project_key = re.sub(r"[^a-zA-Z0-9_-]+", "_", active_project or "working_copy")
+            stored_currency = str(active_saved.get("currency") or "EUR")
+            if stored_currency not in {"EUR", "USD", "UAH"}:
+                stored_currency = "EUR"
+
+            currency = st.selectbox(
+                "Currency",
+                ["EUR", "USD", "UAH"],
+                index=["EUR", "USD", "UAH"].index(stored_currency),
+                key=f"commercial_currency__{project_key}",
+            )
+            currency_symbol = {"EUR": "€", "USD": "$", "UAH": "₴"}[currency]
+
+            e1, e2, e3 = st.columns(3)
+            area = e1.number_input(
+                "Store area, m²",
+                min_value=0.0,
+                value=float(active_saved.get("area") or 0),
+                step=100.0,
+                key=f"commercial_area__{project_key}",
+            )
+            rent = e2.number_input(
+                f"Rent, {currency}/m²/month",
+                min_value=0.0,
+                value=float(active_saved.get("rent") or 0),
+                step=0.5,
+                key=f"commercial_rent__{project_key}",
+            )
+            capex = e3.number_input(
+                f"CAPEX, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("capex") or 0),
+                step=10000.0,
+                key=f"commercial_capex__{project_key}",
+            )
+
+            e4, e5, e6 = st.columns(3)
+            annual_sales = e4.number_input(
+                f"Expected annual sales, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("annual_sales") or 0),
+                step=100000.0,
+                key=f"commercial_sales__{project_key}",
+            )
+            gross_margin = e5.number_input(
+                "Gross margin, %",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(active_saved.get("gross_margin") or 0),
+                step=0.5,
+                key=f"commercial_margin__{project_key}",
+            )
+            payroll = e6.number_input(
+                f"Annual payroll, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("payroll") or 0),
+                step=10000.0,
+                key=f"commercial_payroll__{project_key}",
+            )
+
+            e7, e8, e9 = st.columns(3)
+            utilities = e7.number_input(
+                f"Utilities & maintenance / year, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("utilities") or 0),
+                step=5000.0,
+                key=f"commercial_utilities__{project_key}",
+            )
+            logistics = e8.number_input(
+                f"Local logistics / year, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("logistics") or 0),
+                step=5000.0,
+                key=f"commercial_logistics__{project_key}",
+            )
+            other_opex = e9.number_input(
+                f"Other annual OPEX, {currency}",
+                min_value=0.0,
+                value=float(active_saved.get("other_opex") or 0),
+                step=5000.0,
+                key=f"commercial_other_opex__{project_key}",
+            )
+
+            save_commercial_clicked = st.button(
+                "Save to project",
+                type="primary",
+                use_container_width=True,
+                key=f"commercial_save_to_project__{project_key}",
+                disabled=not bool(active_project),
+            )
+            if save_commercial_clicked:
+                required_commercial = {
+                    "Store area": area,
+                    "Rent": rent,
+                    "CAPEX": capex,
+                    "Annual sales": annual_sales,
+                    "Gross margin": gross_margin,
+                }
+                missing_commercial = [
+                    label for label, value in required_commercial.items() if float(value or 0) <= 0
+                ]
+                if missing_commercial:
+                    st.error(
+                        "Commercial data was not saved. Fill the required fields first: "
+                        + ", ".join(missing_commercial)
+                        + "."
+                    )
+                else:
+                    project_record = dict(saved_projects.get(active_project, {}))
+                    project_record.update(
+                        {
+                            "currency": currency,
+                            "area": float(area),
+                            "rent": float(rent),
+                            "capex": float(capex),
+                            "annual_sales": float(annual_sales),
+                            "gross_margin": float(gross_margin),
+                            "payroll": float(payroll),
+                            "utilities": float(utilities),
+                            "logistics": float(logistics),
+                            "other_opex": float(other_opex),
+                            "schema_version": 2,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    saved_projects[active_project] = project_record
+                    st.session_state["project_library"] = saved_projects
+                    try:
+                        persist_saved_scenarios(saved_projects)
+                        st.success(f"Commercial data saved to {active_project}.")
+                    except OSError:
+                        st.warning(
+                            "Commercial data is only in this session. "
+                            + st.session_state.get("_storage_error", "Export a backup and retry saving.")
+                        )
+
+            annual_rent = area * rent * 12
+            gross_profit = annual_sales * gross_margin / 100
+            total_fixed_opex = annual_rent + payroll + utilities + logistics + other_opex
+            ebitda = gross_profit - total_fixed_opex
+
+            sales_density = annual_sales / area if area > 0 else None
+            occupancy_cost = annual_rent / annual_sales * 100 if annual_sales > 0 else None
+            ebitda_margin = ebitda / annual_sales * 100 if annual_sales > 0 else None
+            payback = capex / ebitda if ebitda > 0 and capex > 0 else None
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Annual rent", f"{currency_symbol}{annual_rent:,.0f}")
+            k2.metric("Gross profit", f"{currency_symbol}{gross_profit:,.0f}")
+            k3.metric("Estimated EBITDA", f"{currency_symbol}{ebitda:,.0f}")
+            k4.metric(
+                "EBITDA margin",
+                f"{ebitda_margin:.1f}%" if ebitda_margin is not None else "—",
+            )
+
+            k5, k6, k7, k8 = st.columns(4)
+            k5.metric(
+                "Sales density",
+                f"{currency_symbol}{sales_density:,.0f}/m²" if sales_density is not None else "—",
+            )
+            k6.metric(
+                "Occupancy cost",
+                f"{occupancy_cost:.1f}%" if occupancy_cost is not None else "—",
+            )
+            k7.metric(
+                "CAPEX payback",
+                f"{payback:.1f} years" if payback is not None else "—",
+            )
+            k8.metric("Total fixed OPEX", f"{currency_symbol}{total_fixed_opex:,.0f}")
+
+            assumptions_complete = (
+                area > 0
+                and rent > 0
+                and annual_sales > 0
+                and gross_margin > 0
+            )
+
+            if assumptions_complete:
+                scenarios = []
+                for scenario, sales_factor in [
+                    ("Conservative", 0.85),
+                    ("Base", 1.00),
+                    ("Upside", 1.15),
+                ]:
+                    scenario_sales = annual_sales * sales_factor
+                    scenario_gp = scenario_sales * gross_margin / 100
+                    scenario_ebitda = scenario_gp - total_fixed_opex
+                    scenario_margin = (
+                        scenario_ebitda / scenario_sales * 100
+                        if scenario_sales > 0
+                        else None
+                    )
+                    scenario_payback = (
+                        capex / scenario_ebitda
+                        if capex > 0 and scenario_ebitda > 0
+                        else None
+                    )
+                    scenarios.append(
+                        {
+                            "Scenario": scenario,
+                            f"Sales ({currency})": round(scenario_sales),
+                            f"EBITDA ({currency})": round(scenario_ebitda),
+                            "EBITDA margin": (
+                                f"{scenario_margin:.1f}%"
+                                if scenario_margin is not None
+                                else "—"
+                            ),
+                            "CAPEX payback": (
+                                f"{scenario_payback:.1f} years"
+                                if scenario_payback is not None
+                                else "—"
+                            ),
+                        }
+                    )
+
+                st.markdown("#### Sales sensitivity")
+                st.dataframe(
+                    pd.DataFrame(scenarios),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                if ebitda <= 0:
+                    st.error(
+                        "Base case EBITDA is negative with the current assumptions."
+                    )
+                elif payback is not None:
+                    st.success(
+                        f"Base case is EBITDA-positive with estimated CAPEX payback of {payback:.1f} years."
+                    )
+                else:
+                    st.success("Base case is EBITDA-positive.")
+            else:
+                st.warning(
+                    "Enter at least store area, rent, annual sales and gross margin "
+                    "to activate the scenario analysis."
+                )
+
+        with tab6:
+            st.markdown("### Methodology & data dictionary")
+            st.caption(f"Build: {BUILD_VERSION}")
+            st.write(
+                "This page explains what each input means, the unit to enter, the source, and how the app calculates the outputs. "
+                "The objective is that another country team can use the model without guessing definitions."
+            )
+
+            with st.expander("Advanced · upload commercial file", expanded=False):
+                st.caption(
+                    "Optional only. Use this when a landlord or colleague sends a ready CSV/XLSX file. "
+                    "For normal work, enter the figures directly above."
+                )
+                commercial_upload = st.file_uploader(
+                    "Commercial file",
+                    type=["csv", "xlsx"],
+                    accept_multiple_files=False,
+                    key="commercial_data_upload",
+                )
+                apply_commercial_upload = st.button(
+                    "Apply commercial data",
+                    use_container_width=True,
+                    key="commercial_data_apply",
+                    disabled=commercial_upload is None,
+                )
+                if apply_commercial_upload and commercial_upload is not None:
+                    try:
+                        imported_commercial = parse_commercial_upload(commercial_upload)
+                        imported_labels = []
+                        for field, value in imported_commercial.items():
+                            state_key = PROJECT_FIELD_MAP[field]
+                            st.session_state[state_key] = value
+                            imported_labels.append(field.replace("_", " "))
+                        st.session_state["_commercial_upload_flash"] = (
+                            "Commercial data applied: " + ", ".join(imported_labels)
+                        )
+                        st.rerun()
+                    except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
+                        st.error(f"Could not read commercial data: {exc}")
+
+            commercial_upload_flash = st.session_state.pop("_commercial_upload_flash", None)
+            if commercial_upload_flash:
+                st.success(commercial_upload_flash)
+
+            st.markdown("#### Commercial & economics inputs")
+            methodology_rows = [
+                ["Store area, m²", "Trading / net sales area used for store productivity and rent calculations. Use the same area definition consistently across countries.", "m²", "Lease plan / technical drawings", "Input"],
+                ["Rent", "Monthly base rent per m². Enter on the same VAT basis as the rest of the model; recommended comparison basis is excluding recoverable VAT.", "currency / m² / month", "LOI / lease offer", "Input"],
+                ["CAPEX", "One-time investment required to open the store: fit-out, MEP, furniture/fixtures, IT/security, signage and other opening investment included in the approved project scope.", "currency", "Project budget", "Input"],
+                ["Expected annual sales", "Expected gross merchandise sales for a full 12-month stabilized year. For cross-country comparison, use a consistent VAT convention; recommended management view is net sales excluding VAT.", "currency / year", "Jumbo benchmark + local forecast", "Input"],
+                ["Gross margin", "Sales minus cost of goods sold, divided by sales.", "% of sales", "Commercial plan / historical stores", "Input"],
+                ["Annual payroll", "Total annual employer cost for the store team, including salaries/wages, employer taxes and regular benefits/bonuses included in local payroll cost.", "currency / year", "HR staffing model", "Input"],
+                ["Utilities & maintenance", "Electricity, heating/cooling, water and routine facility/technical maintenance attributable to the store.", "currency / year", "FM budget / benchmarks", "Input"],
+                ["Local logistics", "Recurring local inbound / last-mile / store delivery and handling cost included in the site P&L.", "currency / year", "Supply-chain budget", "Input"],
+                ["Other annual OPEX", "Recurring store operating costs not already captured above, e.g. security, cleaning, consumables, local services and other site-specific costs.", "currency / year", "Operating budget", "Input"],
+            ]
             st.dataframe(
-                pd.DataFrame(scenarios),
+                pd.DataFrame(methodology_rows, columns=["Field", "Definition", "Unit", "Typical source", "Type"]),
                 use_container_width=True,
                 hide_index=True,
             )
 
-            if ebitda <= 0:
-                st.error(
-                    "Base case EBITDA is negative with the current assumptions."
-                )
-            elif payback is not None:
-                st.success(
-                    f"Base case is EBITDA-positive with estimated CAPEX payback of {payback:.1f} years."
-                )
-            else:
-                st.success("Base case is EBITDA-positive.")
-        else:
-            st.warning(
-                "Enter at least store area, rent, annual sales and gross margin "
-                "to activate the scenario analysis."
-            )
-
-    with tab6:
-        st.markdown("### Methodology & data dictionary")
-        st.caption(f"Build: {BUILD_VERSION}")
-        st.write(
-            "This page explains what each input means, the unit to enter, the source, and how the app calculates the outputs. "
-            "The objective is that another country team can use the model without guessing definitions."
-        )
-
-        with st.expander("Advanced · upload commercial file", expanded=False):
-            st.caption(
-                "Optional only. Use this when a landlord or colleague sends a ready CSV/XLSX file. "
-                "For normal work, enter the figures directly above."
-            )
-            commercial_upload = st.file_uploader(
-                "Commercial file",
-                type=["csv", "xlsx"],
-                accept_multiple_files=False,
-                key="commercial_data_upload",
-            )
-            apply_commercial_upload = st.button(
-                "Apply commercial data",
+            st.markdown("#### Calculated commercial outputs")
+            formula_rows = [
+                ["Annual rent", "Store area × monthly rent × 12"],
+                ["Gross profit", "Expected annual sales × gross margin %"],
+                ["Total fixed OPEX", "Annual rent + payroll + utilities & maintenance + local logistics + other OPEX"],
+                ["Estimated EBITDA", "Gross profit − total fixed OPEX"],
+                ["EBITDA margin", "Estimated EBITDA ÷ annual sales"],
+                ["Sales density", "Annual sales ÷ store area"],
+                ["Occupancy cost", "Annual rent ÷ annual sales"],
+                ["CAPEX payback", "CAPEX ÷ EBITDA, only when EBITDA is positive"],
+            ]
+            st.dataframe(
+                pd.DataFrame(formula_rows, columns=["Output", "Formula"]),
                 use_container_width=True,
-                key="commercial_data_apply",
-                disabled=commercial_upload is None,
+                hide_index=True,
             )
-            if apply_commercial_upload and commercial_upload is not None:
-                try:
-                    imported_commercial = parse_commercial_upload(commercial_upload)
-                    imported_labels = []
-                    for field, value in imported_commercial.items():
-                        state_key = PROJECT_FIELD_MAP[field]
-                        st.session_state[state_key] = value
-                        imported_labels.append(field.replace("_", " "))
-                    st.session_state["_commercial_upload_flash"] = (
-                        "Commercial data applied: " + ", ".join(imported_labels)
-                    )
-                    st.rerun()
-                except (UnicodeDecodeError, ValueError, zipfile.BadZipFile, KeyError, ET.ParseError) as exc:
-                    st.error(f"Could not read commercial data: {exc}")
 
-        commercial_upload_flash = st.session_state.pop("_commercial_upload_flash", None)
-        if commercial_upload_flash:
-            st.success(commercial_upload_flash)
+            st.markdown("#### Location-data logic")
+            st.write(
+                "**Competition:** the app first requests a broad local retail scan and then classifies toy, variety and department stores as direct competitors. If OpenStreetMap/Overpass is unavailable, it can automatically "
+                "fall back to Google Places and then HERE Discover when their API keys are configured. No synthetic competitor counts are inserted."
+            )
+            st.write(
+                "**Traffic & access:** the current score uses mapped major roads, public transport and parking as an infrastructure proxy. "
+                "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
+            )
+            st.write(
+                "**Catchment:** the app requests 15/30/40-minute car isochrones from Valhalla using the OpenStreetMap road network. "
+                "WorldPop population and children 0-18 are calculated inside the same displayed polygons. "
+                "If routing is unavailable, the app switches to explicitly labelled 6/12/16 km proxy zones rather than presenting them as true drive-time."
+            )
 
-        st.markdown("#### Commercial & economics inputs")
-        methodology_rows = [
-            ["Store area, m²", "Trading / net sales area used for store productivity and rent calculations. Use the same area definition consistently across countries.", "m²", "Lease plan / technical drawings", "Input"],
-            ["Rent", "Monthly base rent per m². Enter on the same VAT basis as the rest of the model; recommended comparison basis is excluding recoverable VAT.", "currency / m² / month", "LOI / lease offer", "Input"],
-            ["CAPEX", "One-time investment required to open the store: fit-out, MEP, furniture/fixtures, IT/security, signage and other opening investment included in the approved project scope.", "currency", "Project budget", "Input"],
-            ["Expected annual sales", "Expected gross merchandise sales for a full 12-month stabilized year. For cross-country comparison, use a consistent VAT convention; recommended management view is net sales excluding VAT.", "currency / year", "Jumbo benchmark + local forecast", "Input"],
-            ["Gross margin", "Sales minus cost of goods sold, divided by sales.", "% of sales", "Commercial plan / historical stores", "Input"],
-            ["Annual payroll", "Total annual employer cost for the store team, including salaries/wages, employer taxes and regular benefits/bonuses included in local payroll cost.", "currency / year", "HR staffing model", "Input"],
-            ["Utilities & maintenance", "Electricity, heating/cooling, water and routine facility/technical maintenance attributable to the store.", "currency / year", "FM budget / benchmarks", "Input"],
-            ["Local logistics", "Recurring local inbound / last-mile / store delivery and handling cost included in the site P&L.", "currency / year", "Supply-chain budget", "Input"],
-            ["Other annual OPEX", "Recurring store operating costs not already captured above, e.g. security, cleaning, consumables, local services and other site-specific costs.", "currency / year", "Operating budget", "Input"],
-        ]
-        st.dataframe(
-            pd.DataFrame(methodology_rows, columns=["Field", "Definition", "Unit", "Typical source", "Type"]),
-            use_container_width=True,
-            hide_index=True,
-        )
+            provider_rows = [
+                ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
+                ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
+                ["Valhalla / OpenStreetMap", "15/30/40-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
+                ["WorldPop", "Population + age 0-18 inside catchments", "Active when service responds", "No key in current implementation"],
+                ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
+                ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
+                ["Measured mobility / traffic provider", "Car counts / footfall", "Not connected", "Future provider"],
+            ]
+            st.dataframe(
+                pd.DataFrame(provider_rows, columns=["Provider", "Role", "Status", "Configuration"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.info(
+                "Recommended finance convention for cross-country comparison: use net sales and costs excluding recoverable VAT, "
+                "then apply the same convention to every store benchmark. If a country team uses a different convention, document it in the scenario."
+            )
 
-        st.markdown("#### Calculated commercial outputs")
-        formula_rows = [
-            ["Annual rent", "Store area × monthly rent × 12"],
-            ["Gross profit", "Expected annual sales × gross margin %"],
-            ["Total fixed OPEX", "Annual rent + payroll + utilities & maintenance + local logistics + other OPEX"],
-            ["Estimated EBITDA", "Gross profit − total fixed OPEX"],
-            ["EBITDA margin", "Estimated EBITDA ÷ annual sales"],
-            ["Sales density", "Annual sales ÷ store area"],
-            ["Occupancy cost", "Annual rent ÷ annual sales"],
-            ["CAPEX payback", "CAPEX ÷ EBITDA, only when EBITDA is positive"],
-        ]
-        st.dataframe(
-            pd.DataFrame(formula_rows, columns=["Output", "Formula"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.markdown("#### Location-data logic")
-        st.write(
-            "**Competition:** the app first requests a broad local retail scan and then classifies toy, variety and department stores as direct competitors. If OpenStreetMap/Overpass is unavailable, it can automatically "
-            "fall back to Google Places and then HERE Discover when their API keys are configured. No synthetic competitor counts are inserted."
-        )
-        st.write(
-            "**Traffic & access:** the current score uses mapped major roads, public transport and parking as an infrastructure proxy. "
-            "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
-        )
-        st.write(
-            "**Catchment:** the app requests 15/30/40-minute car isochrones from Valhalla using the OpenStreetMap road network. "
-            "WorldPop population and children 0-18 are calculated inside the same displayed polygons. "
-            "If routing is unavailable, the app switches to explicitly labelled 6/12/16 km proxy zones rather than presenting them as true drive-time."
-        )
-
-        provider_rows = [
-            ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
-            ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
-            ["Valhalla / OpenStreetMap", "15/30/40-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
-            ["WorldPop", "Population + age 0-18 inside catchments", "Active when service responds", "No key in current implementation"],
-            ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
-            ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
-            ["Measured mobility / traffic provider", "Car counts / footfall", "Not connected", "Future provider"],
-        ]
-        st.dataframe(
-            pd.DataFrame(provider_rows, columns=["Provider", "Role", "Status", "Configuration"]),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.info(
-            "Recommended finance convention for cross-country comparison: use net sales and costs excluding recoverable VAT, "
-            "then apply the same convention to every store benchmark. If a country team uses a different convention, document it in the scenario."
-        )
+    else:
+        render_empty_analysis()
 
 st.divider()
+
 st.caption(
     "Decision-support release candidate. Public routing, map/POI and demographic sources can be incomplete or temporarily unavailable; "
     "final investment decisions should use verified commercial and measured traffic data."
