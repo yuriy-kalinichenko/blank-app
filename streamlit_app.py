@@ -2677,17 +2677,6 @@ with analysis_slot:
         st.subheader(analysis["query"])
         st.caption(geo["display_name"])
 
-        map_points = [{"lat": geo["lat"], "lon": geo["lon"], "name": analysis["query"], "selected": True}]
-        for item in retail:
-            if item.get("lat") is not None and item.get("lon") is not None:
-                map_points.append({"lat": item["lat"], "lon": item["lon"], "name": item.get("name") or "Mapped POI"})
-        render_map(map_points, center=(geo["lat"], geo["lon"]), zoom=13, title="Site and nearby retail map")
-
-        st.caption(
-            f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
-            f"Mapped POIs: {max(len(map_points) - 1, 0)} · Retail source: {retail_source}"
-        )
-
         direct_competitor_types = {
             "toys",
             "variety_store",
@@ -2700,6 +2689,25 @@ with analysis_slot:
             "stationery",
         }
         anchor_types = {"supermarket", "department_store", "mall"}
+
+        map_points = [{"lat": geo["lat"], "lon": geo["lon"], "name": analysis["query"], "selected": True}]
+        for item in retail:
+            if item.get("lat") is not None and item.get("lon") is not None:
+                name = (item.get("name") or "").strip()
+                named = bool(name and name.lower() != "unnamed")
+                kind = (
+                    "competitor" if named and item.get("shop") in direct_competitor_types
+                    else "anchor" if named and item.get("shop") in anchor_types
+                    else "parking" if item.get("amenity") == "parking"
+                    else "other"
+                )
+                map_points.append({"lat": item["lat"], "lon": item["lon"], "name": name or "Mapped POI", "kind": kind})
+        render_map(map_points, center=(geo["lat"], geo["lon"]), zoom=13, title="Site and nearby retail map")
+
+        st.caption(
+            f"Coordinates: {geo['lat']:.5f}, {geo['lon']:.5f} · "
+            f"Mapped POIs: {max(len(map_points) - 1, 0)} · Retail source: {retail_source}"
+        )
 
         for item in retail:
             item["distance_km"] = distance_km(

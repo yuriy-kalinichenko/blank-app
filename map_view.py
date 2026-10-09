@@ -21,8 +21,8 @@ def map_html(points, *, center, zoom=12, geojson=None, fit=False):
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>html,body{margin:0;height:100%;font:13px system-ui;color:#183747}#map{height:100%;min-height:400px;border-radius:12px}
 .leaflet-control-zoom{border:1px solid #c7d6dd!important;box-shadow:0 2px 10px #18374714!important;border-radius:8px!important;overflow:hidden}
-.map-legend{position:absolute;top:12px;right:12px;z-index:1000;background:#fff;padding:10px 13px;border:1px solid #d7e2e8;border-radius:8px;box-shadow:0 2px 10px #18374714;font-size:11px;display:flex;gap:14px;align-items:center}
-.map-legend span{display:inline-flex;align-items:center;gap:6px}.map-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;background:#ce734d}.map-legend .selected-dot{background:#087f74}
+.map-legend{position:absolute;top:12px;left:56px;max-width:calc(100% - 125px);z-index:1000;background:#fff;padding:10px 13px;border:1px solid #d7e2e8;border-radius:8px;box-shadow:0 2px 10px #18374714;font-size:11px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.map-legend span{display:inline-flex;align-items:center;gap:6px}.map-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;background:#ce734d}.map-legend .selected-dot{background:#087f74}.map-legend .anchor-dot{background:#386caa}
 #status{position:absolute;z-index:1000;bottom:28px;left:10px;max-width:80%;background:white;padding:6px 10px;border:1px solid #d7e2e8;border-radius:6px;font-size:11px}
 .site-number{background:#ffc938;border:2px solid #795b00;border-radius:50%;text-align:center;line-height:26px;font-weight:700;color:#111}
 .leaflet-popup-content{white-space:pre-line}</style></head><body>
@@ -36,8 +36,11 @@ if (typeof L !== 'undefined') {
  const data=JSON.parse(document.getElementById('map-data').textContent);
  const status=document.getElementById('status');
  const legend=document.getElementById('legend');
+ const grouped=data.points.some(p=>p.kind);
+ const selectedMarkers=[];
  // Static legend labels; provider content is always written with textContent.
  if(data.points.some(p=>p.rank)){legend.textContent='Numbered markers · ranked candidate sites';}
+ else if(grouped){legend.innerHTML='<span><i class="selected-dot"></i>Selected site</span><span><i></i>Direct competitors</span><span><i class="anchor-dot"></i>Other retail anchors</span>';}
  else{legend.innerHTML='<span><i class="selected-dot"></i>Selected site</span><span><i></i>Mapped places</span>';}
  const map=L.map('map',{scrollWheelZoom:false}).setView(data.center,data.zoom);
  const tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
@@ -45,7 +48,7 @@ if (typeof L !== 'undefined') {
  }).addTo(map);
  let tileError=false;
  tiles.on('tileerror',()=>{tileError=true;status.textContent='Some background tiles are unavailable. Markers remain visible.';});
- tiles.on('load',()=>{if(!tileError) status.textContent='Map ready · '+data.points.length+' locations';});
+ tiles.on('load',()=>{if(!tileError) status.textContent='Map ready · '+data.points.length+' mapped locations';});
  const bounds=L.latLngBounds([]);
  const text=(value)=>{const el=document.createElement('span');el.textContent=String(value);return el;};
  if(data.geojson){
@@ -56,17 +59,32 @@ if (typeof L !== 'undefined') {
   }).addTo(map);
   if(polygons.getBounds().isValid())bounds.extend(polygons.getBounds());
  }
- for(const p of data.points){
+ const groups={competitor:L.layerGroup(),anchor:L.layerGroup(),parking:L.layerGroup(),other:L.layerGroup()};
+ if(grouped){
+  groups.competitor.addTo(map);groups.anchor.addTo(map);
+  L.control.layers(null,{
+   'Direct competitors':groups.competitor,'Other retail anchors':groups.anchor,
+   'Parking':groups.parking,'Other mapped places':groups.other
+  },{collapsed:true}).addTo(map);
+ }
+ // The site is always visible, independent of optional context layers.
+ for(const p of [...data.points].sort((a,b)=>Number(Boolean(a.selected))-Number(Boolean(b.selected)))){
   const pos=[p.lat,p.lon];bounds.extend(pos);
   const label=(p.rank?'#'+p.rank+' ':'')+(p.name||'Selected site');
   let marker;
   if(p.rank){marker=L.marker(pos,{title:label,icon:L.divIcon({className:'site-number',html:String(Number(p.rank)),iconSize:[28,28],iconAnchor:[14,14]})});}
-  else{marker=L.circleMarker(pos,{radius:p.selected?10:5,color:p.selected?'#ffffff':'#a35535',fillColor:p.selected?'#087f74':'#ce734d',weight:p.selected?3:1,fillOpacity:0.95});}
+  else{
+   const color=({competitor:'#c86b43',anchor:'#386caa',parking:'#647b8d',other:'#899ba6'})[p.kind]||'#ce734d';
+   if(p.selected){selectedMarkers.push(L.circleMarker(pos,{radius:18,color:'#087f74',fillColor:'#087f74',weight:1,fillOpacity:0.15,interactive:false}).addTo(map));}
+   marker=L.circleMarker(pos,{radius:p.selected?11:p.kind==='other'?3:5,color:p.selected?'#ffffff':color,fillColor:p.selected?'#087f74':color,weight:p.selected?3:1,fillOpacity:p.selected?1:0.8});
+  }
   marker.bindTooltip(text(label));
   let details=label+(p.address?'\n'+p.address:'');
   if(p.golden_score!==undefined) details+='\nEvidence score: '+p.golden_score+' / 100\nConfidence: '+p.confidence;
-  marker.bindPopup(text(details)).addTo(map);
+  marker.bindPopup(text(details)).addTo(grouped&&!p.selected&&!p.rank ? (groups[p.kind]||groups.other) : map);
+  if(p.selected)selectedMarkers.push(marker);
  }
+ map.on('overlayadd',()=>selectedMarkers.forEach(marker=>marker.bringToFront?.()));
  L.control.scale({imperial:false}).addTo(map);
  // Tabs/expanders initially have no width. Fit only once the map is visible.
  let fitted=false;
