@@ -1872,7 +1872,6 @@ render_context(
     saved_projects, st.session_state.get("active_project_name"),
     st.session_state.get("project_stage", "Screening"), CLOUD_CONFIG is not None,
 )
-section_anchor("project-workspace")
 with st.container(key="project_workspace"):
     st.markdown("### Project workspace")
     st.caption("Your sites, commercial assumptions and next decisions — in one place.")
