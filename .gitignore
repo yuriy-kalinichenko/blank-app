@@ -1,4 +1,5 @@
 .streamlit/secrets.toml
+saved_scenarios.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

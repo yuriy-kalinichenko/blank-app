@@ -4,7 +4,7 @@ Retail location intelligence, site-selection and investment-screening applicatio
 
 ## Release candidate
 
-**2026-10-04-v1.0-rc1**
+**2026-10-09-v1.1-rc1**
 
 This release candidate freezes the core product workflow. New large feature layers should be added only after the release-candidate workflow passes real-site validation.
 
@@ -30,7 +30,25 @@ For durable portability, the **Project library · backup & transfer** section ca
 - merge imported projects into the current library;
 - delete a selected project.
 
-The local `saved_scenarios.json` file remains a convenience cache for the current app instance. The exported JSON library is the portable backup and recovery format and avoids relying on ephemeral cloud filesystem persistence.
+The deployed app uses Supabase for authenticated, durable project storage. Open **Cloud projects**, create a Jumbo app account, confirm your email, then sign in. This account is separate from your Supabase dashboard account. A fresh browser session requires sign-in again.
+
+- Guest projects stay only in the current session; export before closing or refreshing the tab.
+- After sign-in, **Copy guest projects to my account** transfers projects from that open session. Conflicting names receive an import suffix; existing cloud records are preserved.
+- Existing JSON exports can be imported under **Advanced · import / export** after sign-in.
+- Save, rename, delete, workflow and commercial changes write to the same private cloud library.
+- Concurrent edits are guarded by a database revision. A stale tab cannot overwrite a newer save. Export its draft, reload the cloud library, then merge deliberately.
+- Failed writes retain the session draft and show an explicit warning, with retry, reload and export controls.
+- Signing out clears project state and tokens. Passwords are not stored in files or the project library.
+
+In cloud mode the app never reads or writes the old shared `saved_scenarios.json`. Open sessions retain their existing projects for explicit transfer; export them before refreshing or redeploying. If an old server file is the only remaining copy, the operator must recover it privately before restarting that server. Local-only development can use `JUMBO_CLOUD_DISABLED=1`; do not use that setting for a shared deployment.
+
+### Supabase setup
+
+Apply `supabase/migrations/20261009060000_project_libraries.sql`. It enables RLS with ownership checks, grants only required column permissions, and increments revisions in the database. No service-role key is used. Projects are private per user; organization-wide sharing is a future feature.
+
+`cloud_config.json` contains only the public project endpoint and **publishable** key. Override with `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `JUMBO_APP_URL` for another deployment. Never substitute a service-role or secret API key.
+
+In Supabase **Authentication → URL Configuration**, set the Site URL and allowed redirect URL to `https://blank-app-odrcjvpl9yf.streamlit.app/`. Keep email confirmations enabled. The default test mail service only serves permitted organization addresses; configure custom SMTP before onboarding external customers. Production account recovery and team invitations are not included in this first storage release.
 
 ## Location intelligence
 

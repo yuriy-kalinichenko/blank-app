@@ -16,6 +16,8 @@ import pandas as pd
 import streamlit as st
 from map_view import render_map
 from golden_context import map_context
+from cloud_storage import CloudError, load_config as load_cloud_config
+from cloud_workspace import render_cloud_workspace, save_cloud_library
 
 from golden_spot import (
     MODEL_VERSION, TAG_KEYS, category as golden_category, classify_object,
@@ -29,6 +31,12 @@ from project_library import (
 )
 
 st.set_page_config(page_title="Jumbo Location Analyzer", page_icon="📍", layout="wide")
+
+try:
+    CLOUD_CONFIG = load_cloud_config()
+except CloudError as exc:
+    st.error(str(exc))
+    st.stop()
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 OVERPASS_URLS = [
@@ -44,7 +52,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-04-v1.0-rc1"
+BUILD_VERSION = "2026-10-09-v1.1-rc1"
 GOLDEN_SEARCH_RADIUS_KM = 20
 _SCREENING_NETWORK = ContextVar("screening_network", default=None)
 
@@ -924,6 +932,10 @@ SCENARIO_FILE = "saved_scenarios.json"
 
 def load_saved_scenarios():
     default_scenarios = default_project_library()
+    if CLOUD_CONFIG is not None:
+        # Never expose a shared server file to anonymous visitors.
+        # Existing open sessions retain their library until explicitly copied after login.
+        return default_scenarios
     try:
         with open(SCENARIO_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -941,8 +953,16 @@ def load_saved_scenarios():
 
 
 def persist_saved_scenarios(data):
-    with open(SCENARIO_FILE, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=2)
+    if CLOUD_CONFIG is not None:
+        save_cloud_library(CLOUD_CONFIG, data)
+        return
+    try:
+        with open(SCENARIO_FILE, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+        st.session_state.pop("_storage_error", None)
+    except OSError:
+        st.session_state["_storage_error"] = "Local server storage is unavailable. Export a backup."
+        raise
 
 
 PROJECT_FIELD_MAP = {
@@ -1760,6 +1780,8 @@ st.caption(
     "Site selection & investment screening · catchment, demand, access, competition and economics."
 )
 
+render_cloud_workspace(CLOUD_CONFIG, BUILD_VERSION)
+
 saved_projects = st.session_state["project_library"]
 
 # One-time recovery for the Karavan baseline if an earlier Workspace Save
@@ -1845,7 +1867,10 @@ with st.container(border=True):
     st.caption("Select a project and it opens automatically. Create, save, rename or delete from one place.")
 
     if project_flash:
-        st.success(project_flash)
+        if st.session_state.get("_storage_error"):
+            st.warning("Changes are only in this session. " + st.session_state["_storage_error"])
+        else:
+            st.success(project_flash)
 
     current_project = st.session_state.get("active_project_name")
     current_stage = st.session_state.get("project_stage", "Screening")
@@ -3331,7 +3356,8 @@ if analysis:
                     st.success(f"Commercial data saved to {active_project}.")
                 except OSError:
                     st.warning(
-                        "Commercial data is saved for this session, but local server storage is unavailable."
+                        "Commercial data is only in this session. "
+                        + st.session_state.get("_storage_error", "Export a backup and retry saving.")
                     )
 
         annual_rent = area * rent * 12
