@@ -12,10 +12,10 @@ def test_release_versions_are_synchronized():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert pyproject["project"]["name"] == "jumbo-location-analyzer"
-    assert pyproject["project"]["version"] == "1.1.0rc1"
+    assert pyproject["project"]["version"] == "1.1.0rc2"
 
     match = re.search(r'BUILD_VERSION = "([^"]+)"', app_source)
     assert match is not None
-    assert match.group(1) == "2026-10-09-v1.1-rc1"
+    assert match.group(1) == "2026-10-09-v1.1-rc2"
 
-    assert "**2026-10-09-v1.1-rc1**" in readme
+    assert "**2026-10-09-v1.1-rc2**" in readme

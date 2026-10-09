@@ -1,0 +1,69 @@
+/* Native widget behaviour is retained. CSS is confined to visual presentation. */
+.stApp { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+[data-testid="stMainBlockContainer"] { max-width: 1560px; padding: 2rem 2.5rem 4rem; }
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stSidebar"] { border-right: 1px solid #294454; }
+[data-testid="stSidebarUserContent"] { padding-top: 1.5rem; }
+.jumbo-brand { display: flex; align-items: center; gap: 12px; margin: 4px 0 38px; }
+.jumbo-monogram { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #72e0c7; color: #132b3a; font-size: 30px; font-weight: 800; }
+.jumbo-brand strong { display: block; font-size: 24px; line-height: 1.1; letter-spacing: .15em; color: #f5fbff; }
+.jumbo-brand div > span { display: block; margin-top: 7px; font-size: 9px; letter-spacing: .12em; color: #aec3d0; }
+.sidebar-label { color: #adc1ce; font-size: 10px; letter-spacing: .14em; font-weight: 650; margin-bottom: 12px; }
+.jumbo-nav { display: grid; gap: 6px; }
+.jumbo-nav a { display: flex; gap: 14px; align-items: center; padding: 12px; border-radius: 8px; color: #8cabbc; text-decoration: none; font-size: 11px; }
+.jumbo-nav a span { font-size: 13px; font-weight: 500; color: #e9f1f5; }
+.jumbo-nav a:hover, .jumbo-nav a:focus-visible { background: #244758; color: #72e0c7; outline: 2px solid #72e0c7; outline-offset: -2px; }
+.st-key-workspace_hero { position: relative; overflow: hidden; background: #132b3a; padding: 28px 30px; border-radius: 16px; margin-bottom: 0; }
+.st-key-workspace_hero::after { content: ""; position: absolute; pointer-events: none; right: -80px; top: -155px; width: 390px; height: 390px; border: 1px solid #416675; border-radius: 50%; box-shadow: 0 0 0 45px #1d3a4900, 0 0 0 46px #2b4b59, 0 0 0 90px #1d3a4900, 0 0 0 91px #264552; opacity: .55; }
+.st-key-workspace_hero h1 { color: #fff; font-size: clamp(1.55rem, 2.3vw, 2.35rem); letter-spacing: -.035em; padding: 0; line-height: 1.15; }
+.st-key-workspace_hero [data-testid="stCaptionContainer"] { color: #c0d0da; font-size: 13px; max-width: 720px; }
+.workspace-eyebrow { color: #72e0c7; font-size: 10px; font-weight: 700; letter-spacing: .17em; }
+.workspace-context { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 7px 0 10px; color: #536a7a; font-size: 12px; }
+.workspace-context > span { display: inline-flex; align-items: center; gap: 7px; }
+.context-dot { width: 6px; height: 6px; background: #087f74; border-radius: 50%; }
+.context-project { margin-left: auto; max-width: 45%; overflow-wrap: anywhere; color: #243f51; font-weight: 600; }
+.stage-tag { background: #e4efef; border: 1px solid #cbdede; padding: 3px 9px; border-radius: 20px; color: #28594f; font-size: 11px; }
+.workspace-anchor { scroll-margin-top: 4rem; height: 0; }
+[data-testid="stMain"] h2 { font-size: 1.5rem; letter-spacing: -.025em; }
+[data-testid="stMain"] h3 { font-size: 1.15rem; letter-spacing: -.02em; padding-top: .3rem; }
+[data-testid="stMain"] h4 { font-size: 1rem; }
+[data-testid="stMain"] [data-testid="stCaptionContainer"] { color: #526879; }
+.st-key-project_workspace, .st-key-project_card { background: #fff; border: 1px solid #dce5eb; border-radius: 14px; box-shadow: 0 3px 12px #132b3a04; padding: 22px 24px; }
+[data-testid="stMain"] [data-testid="stMetric"] { min-width: 0; background: #fff; border: 1px solid #dce5eb; border-radius: 12px; padding: 16px; }
+[data-testid="stMain"] [data-testid="stMetricLabel"] { color: #566d7c; font-size: 12px; }
+[data-testid="stMain"] [data-testid="stMetricValue"] { color: #183c4c; font-size: clamp(1.2rem, 1.75vw, 1.8rem); font-weight: 650; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
+[data-testid="stMain"] [data-testid="stMetricValue"] > div { white-space: normal; overflow-wrap: anywhere; }
+[data-testid="stMain"] [data-testid="stExpander"] > details { background: #fff; border: 1px solid #dce5eb; border-radius: 10px; }
+[data-testid="stMain"] [data-testid="stExpander"] summary { font-weight: 550; }
+[data-testid="stMain"] button[kind="primary"], [data-testid="stMain"] button[kind="secondary"] { min-height: 40px; font-weight: 550; }
+[data-testid="stMain"] button[kind="secondary"] { background: #fff; border-color: #cfdae1; }
+[data-testid="stMain"] button:focus-visible, [data-testid="stMain"] input:focus-visible { outline: 2px solid #087f74; outline-offset: 2px; }
+[data-testid="stMain"] [data-baseweb="tab-list"] { gap: 4px; padding: 5px; background: #e9eff3; border-radius: 10px; }
+[data-testid="stMain"] [data-baseweb="tab"] { height: 42px; padding: 0 13px; border-radius: 7px; color: #4a6271; }
+[data-testid="stMain"] [data-baseweb="tab"][aria-selected="true"] { color: #086d65; background: #fff; box-shadow: 0 1px 4px #183c4c14; }
+[data-testid="stMain"] [data-baseweb="tab-highlight"], [data-testid="stMain"] [data-baseweb="tab-border"] { display: none; }
+.st-key-site_search { padding: 6px 0 14px; }
+.analysis-intro { display: flex; gap: 13px; align-items: center; padding-top: 5px; }
+.section-number { background: #e1efed; color: #087f74; border: 1px solid #c8dfda; padding: 10px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+.analysis-intro h2 { margin: 0; font-size: 1.2rem; font-weight: 650; line-height: 1.4; color: #183747; }
+.analysis-intro p { margin: 3px 0 0; font-size: 12px; color: #536a7a; }
+.analysis-empty { display: flex; align-items: center; gap: 22px; background: #eaf1f3; border: 1px dashed #b9ccd5; border-radius: 14px; padding: 28px; margin-bottom: 16px; }
+.empty-symbol { font-size: 56px; line-height: 1; color: #087f74; }
+.analysis-empty h3 { margin: 0; color: #234454; font-size: 17px; }
+.analysis-empty p { margin: 8px 0 18px; color: #526a7b; font-size: 13px; }
+.analysis-steps { display: flex; flex-wrap: wrap; gap: 10px 24px; color: #345b6c; font-size: 11px; font-weight: 550; }
+[data-testid="stMain"] iframe { border-radius: 12px; }
+@media (max-width: 900px) {
+  [data-testid="stMainBlockContainer"] { padding: 1.5rem 1.2rem 3rem; }
+  .st-key-workspace_hero { padding: 22px; }
+  .context-project { margin-left: 0; max-width: 100%; }
+  .st-key-project_workspace, .st-key-project_card { padding: 16px; }
+  [data-testid="stMain"] [data-testid="stMetric"] { padding: 12px; }
+}
+@media (max-width: 600px) {
+  [data-testid="stMainBlockContainer"] { padding: 1rem .85rem 2rem; }
+  .st-key-workspace_hero::after { display: none; }
+  .analysis-empty { align-items: flex-start; padding: 20px; gap: 12px; }
+  .empty-symbol { font-size: 36px; }
+  .workspace-context { gap: 8px 14px; }
+}
