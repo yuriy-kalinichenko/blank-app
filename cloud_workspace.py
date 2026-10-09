@@ -33,7 +33,7 @@ def render_cloud_workspace(config, build_version):
     if config is None:
         return
     session = st.session_state.get("_cloud_session")
-    with st.expander("Cloud projects", expanded=not bool(session) or bool(st.session_state.get("_storage_error"))):
+    with st.expander("Cloud projects", expanded=bool(st.session_state.get("_storage_error"))):
         if not session:
             st.caption("Guest mode · export a backup before closing. Sign in to save projects across devices.")
             st.caption("Use your Jumbo app account. New here? Create an account and confirm your email, then sign in.")

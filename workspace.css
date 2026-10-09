@@ -27,7 +27,10 @@
 [data-testid="stMain"] h2 { font-size: 1.5rem; letter-spacing: -.025em; }
 [data-testid="stMain"] h3 { font-size: 1.15rem; letter-spacing: -.02em; padding-top: .3rem; }
 [data-testid="stMain"] h4 { font-size: 1rem; }
-[data-testid="stMain"] [data-testid="stCaptionContainer"] { color: #526879; }
+[data-testid="stMain"] [data-testid="stCaptionContainer"] { color: #526879; opacity: 1; }
+[data-testid="stMain"] .st-key-workspace_hero [data-testid="stCaptionContainer"] { color: #c0d0da; opacity: 1; }
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] { color: #b5c8d3; opacity: 1; }
+[data-testid="stMain"] h3 { scroll-margin-top: 4rem; }
 .st-key-project_workspace, .st-key-project_card { background: #fff; border: 1px solid #dce5eb; border-radius: 14px; box-shadow: 0 3px 12px #132b3a04; padding: 22px 24px; }
 [data-testid="stMain"] [data-testid="stMetric"] { min-width: 0; background: #fff; border: 1px solid #dce5eb; border-radius: 12px; padding: 16px; }
 [data-testid="stMain"] [data-testid="stMetricLabel"] { color: #566d7c; font-size: 12px; }
