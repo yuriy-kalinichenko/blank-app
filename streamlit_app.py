@@ -1627,24 +1627,32 @@ def fetch_golden_context(lat, lon, candidates=()):
     rows = []
     try:
         payload = run_overpass_query(query)
+        elements = payload.get("elements")
+        if not isinstance(elements, list):
+            raise ValueError("Overpass returned no elements list")
+        for element in elements:
+            tags = element.get("tags") or {}
+            center = element if element.get("lat") is not None else element.get("center", {})
+            if center.get("lat") is None or center.get("lon") is None:
+                continue
+            rows.append({
+                "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
+                "lat": float(center["lat"]), "lon": float(center["lon"]),
+                "tags": tags, **{key: tags[key] for key in TAG_KEYS if key in tags},
+                "osm_type": element.get("type"), "osm_id": element.get("id"),
+                "discovery_source": "OpenStreetMap / Overpass · city surroundings",
+            })
+        if not rows:
+            raise ValueError("Overpass returned no usable surrounding-map objects")
+        return rows
     except Exception as exc:
         try:
-            return map_context(candidates, fetch_golden_map_tile)
+            rows = map_context(candidates, fetch_golden_map_tile)
+            if not rows:
+                raise ValueError("Map API returned no usable surrounding-map objects")
+            return rows
         except Exception as fallback_error:
-            raise RuntimeError(f"Overpass unavailable; {fallback_error}") from exc
-    for element in payload.get("elements", []):
-        tags = element.get("tags") or {}
-        center = element if element.get("lat") is not None else element.get("center", {})
-        if center.get("lat") is None or center.get("lon") is None:
-            continue
-        rows.append({
-            "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
-            "lat": float(center["lat"]), "lon": float(center["lon"]),
-            "tags": tags, **{key: tags[key] for key in TAG_KEYS if key in tags},
-            "osm_type": element.get("type"), "osm_id": element.get("id"),
-            "discovery_source": "OpenStreetMap / Overpass · city surroundings",
-        })
-    return rows
+            raise RuntimeError(f"Overpass unavailable or empty; {fallback_error}") from exc
 
 
 def build_golden_spot_candidates(city_query, max_results=5):
@@ -1736,6 +1744,7 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         "candidate_sites": ranked, "traffic_generators": groups["traffic"],
         "background_context": groups["background"],
         "context_available": context_available,
+        "context_object_count": len(context),
         "ranking_available": context_available and bool(ranked),
         "context_error": context_error,
         "context_source": next((r.get("discovery_source") for r in context if r.get("discovery_source")),
@@ -2425,16 +2434,16 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
     gs_meta = st.session_state.get("golden_spot_meta")
 
     if gs_meta:
-        gs_context_ready = bool(gs_meta.get("context_available"))
+        gs_context_ready = bool(gs_meta.get("context_available") and gs_meta.get("context_object_count", 0))
         # Do not revive an old session's alphabetical shortlist after an upgrade.
         if not gs_context_ready:
             gs_results = []
         gs_status = "Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending"
         st.success(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
-        if not gs_meta.get("context_available"):
+        if not gs_context_ready:
             st.warning("Surrounding map data is incomplete. Traffic, access and parking remain unknown. No top-five ranking is available; all discovered candidates are listed alphabetically for further investigation. Retry the search to complete the missing data.")
-        if gs_meta.get("context_available"):
+        if gs_context_ready:
             st.caption(f"Surroundings source: {gs_meta.get('context_source', 'OpenStreetMap')} · mapped infrastructure, not measured footfall")
         elif gs_meta.get("context_error"):
             with st.expander("Surroundings data diagnostics"):

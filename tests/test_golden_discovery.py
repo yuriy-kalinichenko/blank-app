@@ -136,3 +136,26 @@ def test_screening_context_resets_after_error(app, monkeypatch):
     with pytest.raises(RuntimeError):
         app.build_golden_spot_candidates("Tirana")
     assert app._SCREENING_NETWORK.get() is None
+
+
+@pytest.mark.parametrize("payload", [{"elements": []}, {"elements": None},
+                                     {"elements": [{"type": "way", "id": 1}]}])
+def test_empty_or_unusable_overpass_context_uses_map_fallback(app, city, monkeypatch, payload):
+    monkeypatch.setattr(app, "run_overpass_query", lambda _: payload)
+    candidates = [{"name": "Tirana mall", "lat": city["lat"], "lon": city["lon"]}]
+    expected = [{"name": "Nearby parking", "lat": city["lat"], "lon": city["lon"],
+                 "amenity": "parking"}]
+    calls = []
+    def fallback(sites, loader):
+        calls.append(sites)
+        return expected
+    monkeypatch.setattr(app, "map_context", fallback)
+    assert app.fetch_golden_context(city["lat"], city["lon"], candidates) == expected
+    assert calls == [candidates]
+
+
+def test_empty_context_from_both_providers_is_not_success(app, city, monkeypatch):
+    monkeypatch.setattr(app, "run_overpass_query", lambda _: {"elements": []})
+    monkeypatch.setattr(app, "map_context", lambda *args: [])
+    with pytest.raises(RuntimeError, match="no usable surrounding-map objects"):
+        app.fetch_golden_context(city["lat"], city["lon"], [{"name": "Mall"}])

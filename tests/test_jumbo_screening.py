@@ -140,3 +140,18 @@ def test_missing_context_ui_keeps_inventory_without_false_top_five(app, city, mo
     assert not any('No eligible Jumbo premises found' in x.value for x in at.info)
     assert any('No top-five ranking is available' in x.value for x in at.warning)
     assert not any(b.label == 'Create project from this spot' for b in at.button)
+
+
+def test_legacy_empty_context_cannot_restore_ranked_ui(app, city, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    setup_search(app, city, monkeypatch, [obj("Tirana Mall", "mall")], [])
+    _, meta = app.build_golden_spot_candidates("Tirana")
+    meta["context_available"] = True
+    meta.pop("context_object_count", None)
+    at = AppTest.from_file(Path(__file__).resolve().parents[1] / 'streamlit_app.py')
+    at.session_state['golden_spot_results'] = meta['candidate_sites']
+    at.session_state['golden_spot_meta'] = meta
+    at.run(timeout=15)
+    assert len(at.exception) == 0
+    assert any('No top-five ranking is available' in x.value for x in at.warning)
+    assert not any('Rank' in d.value.columns for d in at.dataframe)
