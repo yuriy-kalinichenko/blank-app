@@ -63,9 +63,11 @@ def test_missing_context_is_unknown_and_no_fringe_penalty(app, city, monkeypatch
     monkeypatch.setattr(app, "fetch_golden_context", unavailable)
     result, meta = app.build_golden_spot_candidates("Tirana")
     assert not meta["context_available"]
-    assert [r["score"] for r in result] == [40, 40]
-    assert all(r["components"]["Nearby parking"] is None for r in result)
-    assert all(r["retail_count"] is None for r in result)
+    assert not meta["ranking_available"]
+    assert result == []
+    assert {r["name"] for r in meta["candidate_sites"]} == {"Centre Mall", "Fringe Mall"}
+    assert all(r["components"]["Nearby parking"] is None for r in meta["candidate_sites"])
+    assert all(r["retail_count"] is None for r in meta["candidate_sites"])
 
 
 def test_three_tirana_runs_are_order_independent_and_keep_all_malls(app, city, malls, monkeypatch):
@@ -113,3 +115,28 @@ def test_result_ui_keeps_roles_separate_and_unknowns_visible(app, city, monkeypa
     assert 'Traffic generators · 1' in labels
     assert 'Background context · 0' in labels
     assert sum(b.label == 'Create project from this spot' for b in at.button) == 1
+
+
+def test_missing_context_ui_keeps_inventory_without_false_top_five(app, city, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    venues = [obj("A Mall", "mall"), obj("TEG", "mall", lat=41.28, lon=19.86)]
+    setup_search(app, city, monkeypatch, venues, [])
+    def unavailable(*args):
+        raise TimeoutError("provider failed")
+    monkeypatch.setattr(app, "fetch_golden_context", unavailable)
+    _, meta = app.build_golden_spot_candidates("Tirana")
+    at = AppTest.from_file(Path(__file__).resolve().parents[1] / 'streamlit_app.py')
+    # Old sessions may retain a shortlist produced before this fix.
+    at.session_state['golden_spot_results'] = meta['candidate_sites'][:1]
+    at.session_state['golden_spot_meta'] = meta
+    at.session_state['golden_spot_city'] = 'Tirana'
+    at.run(timeout=15)
+    assert len(at.exception) == 0
+    candidates = next(d.value for d in at.dataframe if 'Candidate' in d.value.columns)
+    assert set(candidates['Candidate']) == {'A Mall', 'TEG'}
+    assert set(candidates['Shortlist']) == {'Not ranked'}
+    assert candidates['Evidence score'].isna().all()
+    assert not any('Rank' in d.value.columns for d in at.dataframe)
+    assert not any('No eligible Jumbo premises found' in x.value for x in at.info)
+    assert any('No top-five ranking is available' in x.value for x in at.warning)
+    assert not any(b.label == 'Create project from this spot' for b in at.button)

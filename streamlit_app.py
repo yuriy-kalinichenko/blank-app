@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from map_view import render_map
-from golden_context import map_context
+from golden_context import load_adaptive_tile, map_context
 from cloud_storage import CloudError, load_config as load_cloud_config
 from cloud_workspace import render_cloud_workspace, save_cloud_library
 from ui_theme import (
@@ -56,7 +56,7 @@ WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
 DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-09-v1.1-rc2"
+BUILD_VERSION = "2026-10-15-v1.1-rc3"
 GOLDEN_SEARCH_RADIUS_KM = 20
 _SCREENING_NETWORK = ContextVar("screening_network", default=None)
 
@@ -1587,7 +1587,7 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_golden_map_tile(bbox):
+def request_golden_map_tile(bbox):
     url = "https://api.openstreetmap.org/api/0.6/map.json?" + urllib.parse.urlencode(
         {"bbox": ",".join(str(value) for value in bbox)})
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
@@ -1597,6 +1597,12 @@ def fetch_golden_map_tile(bbox):
     if not isinstance(elements, list):
         raise ValueError("OSM Map API returned no elements list")
     return elements
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_golden_map_tile(bbox):
+    # Cache both completed parent tiles and successful children across retries.
+    return load_adaptive_tile(bbox, request_golden_map_tile)
 
 
 def fetch_golden_context(lat, lon, candidates=()):
@@ -1730,11 +1736,14 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         "candidate_sites": ranked, "traffic_generators": groups["traffic"],
         "background_context": groups["background"],
         "context_available": context_available,
+        "ranking_available": context_available and bool(ranked),
         "context_error": context_error,
         "context_source": next((r.get("discovery_source") for r in context if r.get("discovery_source")),
                                "OpenStreetMap / Overpass" if context_available else "Unavailable"),
     })
-    return ranked[:max(0, max_results)], meta
+    # Discovery remains usable without enrichment, but an alphabetical top five
+    # is not evidence of better premises. Keep the entire inventory unranked.
+    return ranked[:max(0, max_results)] if context_available else [], meta
 
 
 def render_project_readiness(placeholder):
@@ -2416,10 +2425,15 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
     gs_meta = st.session_state.get("golden_spot_meta")
 
     if gs_meta:
-        st.success(f"Jumbo screening complete · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
+        gs_context_ready = bool(gs_meta.get("context_available"))
+        # Do not revive an old session's alphabetical shortlist after an upgrade.
+        if not gs_context_ready:
+            gs_results = []
+        gs_status = "Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending"
+        st.success(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
         if not gs_meta.get("context_available"):
-            st.warning("Surrounding map data is unavailable. Traffic, access and parking remain unknown. The preliminary order uses venue type only; equal scores are ordered by name.")
+            st.warning("Surrounding map data is incomplete. Traffic, access and parking remain unknown. No top-five ranking is available; all discovered candidates are listed alphabetically for further investigation. Retry the search to complete the missing data.")
         if gs_meta.get("context_available"):
             st.caption(f"Surroundings source: {gs_meta.get('context_source', 'OpenStreetMap')} · mapped infrastructure, not measured footfall")
         elif gs_meta.get("context_error"):
@@ -2434,8 +2448,8 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         with st.expander(f"Jumbo candidate sites · {len(gs_meta.get('candidate_sites', []))}", expanded=True):
             st.caption("Only mapped shopping centres, retail parks and explicitly typed shopping destinations. Generic commercial buildings require verification first. Distinct nearby venues remain separate. Open-map coverage is not exhaustive; vacancy and Jumbo unit size must be confirmed.")
             st.dataframe(pd.DataFrame([
-                {"Candidate": row["name"], "Type": row["kind"], "Evidence score": row["score"],
-                 "Shortlist": f"#{gs_rank[row['candidate_id']]}" if row["candidate_id"] in gs_rank else "Outside top 5",
+                {"Candidate": row["name"], "Type": row["kind"], "Evidence score": row["score"] if gs_context_ready else None,
+                 "Shortlist": (f"#{gs_rank[row['candidate_id']]}" if row["candidate_id"] in gs_rank else "Outside top 5") if gs_context_ready else "Not ranked",
                  "Distance, km": round(distance_km(gs_meta["lat"], gs_meta["lon"], row["lat"], row["lon"]), 1),
                  "Premises": "Size / vacancy / lease unverified", "Address": row["address"]}
                 for row in gs_meta.get("candidate_sites", [])
@@ -2510,6 +2524,12 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
                         f"{spot['lat']:.6f}, {spot['lon']:.6f}"
                     )
                     st.rerun()
+    elif gs_meta is not None and gs_meta.get("candidate_sites"):
+        st.info("Candidate locations are available below. Complete the surrounding-map data before comparing their scores.")
+        render_map([
+            {"name": row["name"], "lat": row["lat"], "lon": row["lon"], "address": row["address"]}
+            for row in gs_meta["candidate_sites"]
+        ], center=(gs_meta["lat"], gs_meta["lon"]), fit=True, title="Discovered candidates · unranked")
     elif gs_meta is not None:
         st.info("No eligible Jumbo premises found. Traffic generators and background context cannot substitute for a real candidate site.")
 

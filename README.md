@@ -4,7 +4,7 @@ Retail location intelligence, site-selection and investment-screening applicatio
 
 ## Release candidate
 
-**2026-10-09-v1.1-rc2**
+**2026-10-15-v1.1-rc3**
 
 This release candidate freezes the core product workflow. New large feature layers should be added only after the release-candidate workflow passes real-site validation.
 
@@ -127,11 +127,13 @@ Before calling the release final:
 - The deployed Streamlit app opens cleanly from a fresh browser session.
 
 
-## Golden Spot: Jumbo premises screening (v3)
+## Golden Spot: Jumbo premises screening (v5)
 
 Golden Spot separates **candidate sites**, **traffic generators**, and **background context** before ranking. Only named, mapped shopping centres / retail parks and explicitly typed shopping destinations can enter the shortlist. A generic retail building / land tag is insufficient: it may describe an occupied small business. Existing tenant businesses (including supermarkets, cafes and pharmacies) are factors, never candidate premises. A dense POI cluster does not create a synthetic site. Distinct nearby venues stay separate.
 
-The transparent evidence score uses venue type (40), shopping / family traffic (20), road / transit proximity (25), and nearby parking (15). Small food/service POIs have capped influence. A single city map snapshot gives candidates the same context coverage. Distance from the city centre is descriptive, not a penalty for suburban destination malls. Equal scores use name and object identity for deterministic ordering.
+The transparent evidence score uses venue type (40), shopping / family traffic (20), road / transit proximity (25), and nearby parking (15). Small food/service POIs have capped influence. A single city map snapshot gives candidates the same context coverage. Distance from the city centre is descriptive, not a penalty for suburban destination malls. With complete context, equal scores use name and object identity for deterministic ordering. Without complete context, all candidates remain visible as an unranked inventory and map; no top-five recommendation or comparable score is shown.
+
+The fallback Map API loader splits a tile into four smaller boxes when the provider explicitly reports its node-count limit. Subdivision is bounded, successful requests are cached, and rate limits/timeouts still stop requests under the existing screening budget. Partial coverage never counts as complete.
 
 These weights are screening heuristics, not calibrated sales or investment forecasts. Missing context remains unknown; it is never presented as zero demand. Mapped premises do not establish vacancy, leasable area, loading rights, rent, CAPEX, logistics cost or network cannibalisation. Those remain explicit due-diligence checks before opening a Jumbo. Search coverage is limited by public-map completeness.
 

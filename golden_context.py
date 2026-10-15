@@ -1,10 +1,42 @@
 """Shared OSM map tiles covering every candidate's complete evidence radius."""
 import math
+from urllib.error import HTTPError
 
 from golden_spot import TAG_KEYS, distance
 
 CONTEXT_RADIUS_KM = 2.2
 TILE_DEGREES = 0.025
+
+
+def load_adaptive_tile(bbox, load_tile, max_depth=3):
+    """Split only provider-confirmed node-limit errors, never rate limits/timeouts.
+
+    A successful result covers the entire original box. Overlapping OSM objects
+    are merged by identity, and any failed child keeps the whole tile incomplete.
+    The caller's loader retains its shared request budget and successful cache.
+    """
+    try:
+        return load_tile(bbox)
+    except HTTPError as exc:
+        if exc.code != 400:
+            raise
+        detail = exc.read(2048).decode("utf-8", errors="replace").strip()
+        if "too many nodes" not in detail.lower() or max_depth <= 0:
+            raise RuntimeError(f"OSM Map API HTTP 400 for {bbox}: {detail or exc.reason}") from exc
+
+    west, south, east, north = bbox
+    mid_lon, mid_lat = (west + east) / 2, (south + north) / 2
+    children = (
+        (west, south, mid_lon, mid_lat),
+        (mid_lon, south, east, mid_lat),
+        (west, mid_lat, mid_lon, north),
+        (mid_lon, mid_lat, east, north),
+    )
+    merged = {}
+    for child in children:
+        for element in load_adaptive_tile(child, load_tile, max_depth - 1):
+            merged[(element.get("type"), element.get("id"))] = element
+    return list(merged.values())
 
 
 def context_tiles(candidates):
