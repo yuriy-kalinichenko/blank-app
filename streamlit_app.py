@@ -15,6 +15,9 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from map_view import render_map
+from demographics import exact_age_population
+from analysis_evidence import attach_analysis
+from country_logistics import render_country_logistics, render_tbilisi_review
 from golden_context import load_adaptive_tile, map_context
 from cloud_storage import CloudError, load_config as load_cloud_config
 from cloud_workspace import render_cloud_workspace, save_cloud_library
@@ -904,15 +907,7 @@ def worldpop_children_geojson(geometry, year=2025, age_range=(0, 18)):
                     f"WorldPop age/sex result had no pyramid: {last_payload}"
                 )
 
-            total_children = 0.0
-            for row in pyramid:
-                if not isinstance(row, dict):
-                    continue
-                if row.get("total") is not None:
-                    total_children += float(row.get("total") or 0)
-                else:
-                    total_children += float(row.get("male") or 0)
-                    total_children += float(row.get("female") or 0)
+            total_children = exact_age_population(pyramid, age_range)
 
             return {
                 "children_population": total_children,
@@ -1230,7 +1225,7 @@ def capture_project_from_state(project_name):
     }
     for source_key, state_key in PROJECT_FIELD_MAP.items():
         project[source_key] = st.session_state.get(state_key)
-    return project
+    return attach_analysis(project, st.session_state.get("analysis"))
 
 
 def build_project_comparison(projects):
@@ -2032,6 +2027,10 @@ with st.container(key="project_workspace"):
                     )
                     saved_projects[target_name] = existing_project
 
+                saved_projects[target_name] = attach_analysis(
+                    saved_projects[target_name], st.session_state.get("analysis")
+                )
+
                 st.session_state["project_library"] = saved_projects
                 persist_warning = None
                 try:
@@ -2202,6 +2201,11 @@ if active_project_for_card and active_project_for_card in saved_projects:
 
     with st.container(key="project_card"):
         st.markdown(f"### Project card · {active_project_for_card}")
+        if card_project.get("analysis_snapshot"):
+            snapshot = card_project["analysis_snapshot"]
+            st.caption(f"Saved evidence snapshot: {snapshot.get('completed_at', 'date unavailable')}. Refresh location analysis to request current provider data.")
+            st.download_button("Export saved site evidence", json.dumps(snapshot, ensure_ascii=False, indent=2),
+                               "saved-site-evidence.json", "application/json", key="saved_site_evidence_export")
         st.caption(
             f"{card_project.get('location', '')} · "
             f"{card_project.get('stage', 'Screening')} · "
@@ -2415,6 +2419,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         use_container_width=True,
         key="golden_spot_run",
     )
+    render_tbilisi_review(gs_city)
 
     if gs_run:
         st.session_state["golden_spot_last_click"] = datetime.now(timezone.utc).isoformat()
@@ -2441,6 +2446,12 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         gs_status = "Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending"
         st.success(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
+        st.download_button(
+            "Export Golden Spot evidence",
+            data=json.dumps({"metadata": gs_meta, "shortlist": gs_results}, ensure_ascii=False, indent=2),
+            file_name="golden-spot-evidence.json", mime="application/json",
+            key="golden_spot_export_evidence",
+        )
         if not gs_context_ready:
             st.warning("Surrounding map data is incomplete. Traffic, access and parking remain unknown. No top-five ranking is available; all discovered candidates are listed alphabetically for further investigation. Retry the search to complete the missing data.")
         if gs_context_ready:
@@ -2662,6 +2673,8 @@ with analysis_slot:
                                 children_population_errors[label] = str(exc)
 
                         st.session_state["analysis"] = {
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "demographic_count_policy": 2,
                             "query": location.strip(),
                             "geo": geo,
                             "retail": retail,
@@ -3108,7 +3121,7 @@ with analysis_slot:
                 loaded_labels = ", ".join(sorted(children_population.keys()))
                 st.warning(f"Children profile status: partial data loaded for {loaded_labels}.")
             else:
-                st.warning("Children 0-18 demographic layer is temporarily unavailable.")
+                st.warning("Exact children 0-18 count is unavailable. Check age-band coverage and provider diagnostics below.")
 
             if children_population_errors:
                 with st.expander("Children demographic diagnostics", expanded=False):
@@ -3639,6 +3652,8 @@ with analysis_slot:
         render_empty_analysis()
 
 st.divider()
+
+render_country_logistics()
 
 st.caption(
     "Decision-support release candidate. Public routing, map/POI and demographic sources can be incomplete or temporarily unavailable; "

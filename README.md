@@ -85,6 +85,18 @@ Saved-project comparison uses only the assumptions stored in each project. The a
 - Missing provider data is shown as unavailable or needing retry rather than invented.
 - Children 0-18 is a demographic demand indicator, not a family or household count.
 - Commercial results are assumption-driven and are not presented as market forecasts.
+- Exact children 0-18 is unavailable when WorldPop supplies a 15-19 band. The application rejects that boundary-crossing band rather than including all 19-year-olds or silently assuming an age distribution.
+- Workspace saves now attach a matching, dated location-evidence snapshot. Saved evidence has its own export; refresh location analysis for current provider responses. Golden Spot has a separate evidence export, including incomplete/unranked results.
+
+## Georgia review · 16 October 2026
+
+The core real-site workflow was exercised before adding the country review: East Point, Tbilisi Mall and City Mall Saburtalo completed analysis with live Valhalla catchments and WorldPop total-population responses. Separate Gldani and Galleria runs and the project export are recorded in the validation report. Provider results are not a census, a traffic count, or a commercial forecast.
+
+**Country logistics · Georgia / Логистика страны** contains source-linked gateway and warehouse evidence, a map with point-precision labels, qualitative route/storage alternatives and clearly labelled straight-line distances from the verified Tbilisi GW logistics site to five candidate malls. No transport price or ETA is assumed. Offices are not warehouses; an unresolved warehouse-property plot is omitted from the point map. Raben is retained as an origin/partner option, with no Georgian own warehouse claimed.
+
+Entering Tbilisi in Golden Spot also exposes an independent **Verified Tbilisi review**. Its survey order is analyst judgment, not a replacement for the Golden Spot score. The live city discovery found 15 candidates but surrounding-map coverage was incomplete, so no automated top-five ranking was available. The evidence sample is not a complete Georgian competitor or warehouse database. All five shortlisted malls have a MINISO branch in its official directory; selected toy/home competitors are cross-checked against mall/operator directories.
+
+The sourced public dataset is `data/georgia_logistics.json`. Quotes, unit vacancy, lease terms, footfall, import origin, Incoterms, SKU classifications and network volume are still required. The addition neither modifies database tables/policies nor automatically imports or overwrites any existing projects. In a guest session, export results for durable portability; an authenticated cloud write must be checked separately after sign-in.
 
 ## Quality gates
 

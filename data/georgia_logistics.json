@@ -1,0 +1,427 @@
+{
+  "country": "Georgia",
+  "city": "Tbilisi",
+  "checked_at": "2026-10-16",
+  "version": 1,
+  "ranking_method": "Analyst due-diligence priority, not Golden Spot evidence score or investment ranking. Five verified venues selected from the 15 mapped candidates; incomplete citywide context prevents an automated ranking. No complete national competitor database is claimed.",
+  "sites": [
+    {
+      "name": "East Point",
+      "priority": 1,
+      "address": "2 Aleksandre Tvalchrelidze Street, Tbilisi 0182, Georgia",
+      "facts": "Shopping and entertainment destination; operator advertises 4,000 free parking spaces and a cinema.",
+      "access": "Kakheti Highway corridor; exact truck entry and unloading rights need site inspection.",
+      "competitors": [
+        "MINISO",
+        "Super Toys / Superstore"
+      ],
+      "judgment": "First landlord survey: destination format, parking and proximity to the verified eastern logistics hub support a large-format store hypothesis.",
+      "limitations": "Vacancy, contiguous unit area, ceiling height, truck access, rent and measured visitor counts unverified.",
+      "sources": [
+        "eastpoint",
+        "miniso",
+        "eastpoint_toys"
+      ],
+      "lat": 41.6899582,
+      "lon": 44.8984544,
+      "coordinate_precision": "OSM mall representative point; not entrance or lease unit",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=East+Point%2C+Tbilisi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 371721697,
+      "role": "candidate_site",
+      "checked_at": "2026-10-16",
+      "commercial": {
+        "area": null,
+        "rent": null,
+        "capex": null,
+        "annual_sales": null,
+        "gross_margin": null,
+        "payroll": null,
+        "utilities": null,
+        "logistics": null,
+        "other_opex": null
+      }
+    },
+    {
+      "name": "Tbilisi Mall",
+      "priority": 2,
+      "address": "16th km Davit Aghmashenebeli Alley, Tbilisi, Georgia",
+      "facts": "Mapped shopping mall; address is independently listed by MINISO. Mall site requires JavaScript for full detail.",
+      "access": "Northern destination on Aghmashenebeli Alley; turns, loading area and parking capacity require confirmation.",
+      "competitors": [
+        "MINISO"
+      ],
+      "judgment": "Second survey: test a northern destination store as a geographic alternative to East Point; not a proposal to open both.",
+      "limitations": "Parking capacity, available unit, service charges and traffic not verified from current operator material.",
+      "sources": [
+        "tbilisimall",
+        "miniso"
+      ],
+      "lat": 41.8165297,
+      "lon": 44.7727086,
+      "coordinate_precision": "OSM mall representative point; not entrance or lease unit",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=Tbilisi+Mall%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 167318119,
+      "role": "candidate_site",
+      "checked_at": "2026-10-16",
+      "commercial": {
+        "area": null,
+        "rent": null,
+        "capex": null,
+        "annual_sales": null,
+        "gross_margin": null,
+        "payroll": null,
+        "utilities": null,
+        "logistics": null,
+        "other_opex": null
+      }
+    },
+    {
+      "name": "City Mall Saburtalo",
+      "priority": 3,
+      "address": "70 Vazha-Pshavela Avenue / 1 Petre Kavtaradze Street, Tbilisi, Georgia",
+      "facts": "Operator lists Goodwill, cinema, family entertainment and parking (advertised capacity 1,000).",
+      "access": "Operator names Delisi and Vazha-Pshavela metro stations; exact walking routes and delivery windows unverified.",
+      "competitors": [
+        "MINISO",
+        "Pepela"
+      ],
+      "judgment": "Urban family-shopping alternative; verify whether one sufficiently large, economical unit can be assembled.",
+      "limitations": "Mall parking claim not independently audited; adjacent parking is not evidence of Jumbo loading rights.",
+      "sources": [
+        "saburtalo",
+        "saburtalo_access",
+        "saburtalo_toys",
+        "miniso"
+      ],
+      "lat": 41.7238604,
+      "lon": 44.7374514,
+      "coordinate_precision": "OSM mall representative point; not entrance or lease unit",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=City+Mall+Saburtalo%2C+Tbilisi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "relation",
+      "osm_id": 17841603,
+      "role": "candidate_site",
+      "checked_at": "2026-10-16",
+      "commercial": {
+        "area": null,
+        "rent": null,
+        "capex": null,
+        "annual_sales": null,
+        "gross_margin": null,
+        "payroll": null,
+        "utilities": null,
+        "logistics": null,
+        "other_opex": null
+      }
+    },
+    {
+      "name": "City Mall Gldani",
+      "priority": 4,
+      "address": "1 Ilia Vekua Street, Tbilisi 0167, Georgia",
+      "facts": "Mapped mall; operator lists parking (advertised capacity 1,000) and Akhmeteli Theater metro access.",
+      "access": "Northern urban district; local delivery route, truck restrictions and mall loading dock remain to inspect.",
+      "competitors": [
+        "MINISO",
+        "Pepela"
+      ],
+      "judgment": "Test a neighbourhood-oriented value proposition after confirming catchment purchasing power and large-format space.",
+      "limitations": "Address variants exist in tenant directories; the mapped complex and official visit information were reconciled, not the legal lease unit.",
+      "sources": [
+        "gldani",
+        "gldani_access",
+        "gldani_toys",
+        "miniso"
+      ],
+      "lat": 41.7897732,
+      "lon": 44.8143298,
+      "coordinate_precision": "OSM mall representative point; not entrance or lease unit",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=City+Mall+Gldani%2C+Tbilisi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 587717099,
+      "role": "candidate_site",
+      "checked_at": "2026-10-16",
+      "commercial": {
+        "area": null,
+        "rent": null,
+        "capex": null,
+        "annual_sales": null,
+        "gross_margin": null,
+        "payroll": null,
+        "utilities": null,
+        "logistics": null,
+        "other_opex": null
+      }
+    },
+    {
+      "name": "Galleria Tbilisi",
+      "priority": 5,
+      "address": "2/4 Shota Rustaveli Avenue, Tbilisi, Georgia",
+      "facts": "Central mapped shopping mall; operator contact page names Freedom Square metro station; MINISO lists a branch.",
+      "access": "Central pedestrian/transit hypothesis; replenishment access, parking capacity and unloading rules unverified.",
+      "competitors": [
+        "MINISO"
+      ],
+      "judgment": "Reserve for a central or smaller-format hypothesis if commercial terms and unit geometry support it.",
+      "limitations": "No verified large unit or price position; no rent premium assumed. Centrality alone does not prove Jumbo suitability.",
+      "sources": [
+        "galleria",
+        "miniso"
+      ],
+      "lat": 41.6944428,
+      "lon": 44.7998234,
+      "coordinate_precision": "OSM mall representative point; not entrance or lease unit",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=Galleria+Tbilisi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 559446309,
+      "role": "candidate_site",
+      "checked_at": "2026-10-16",
+      "commercial": {
+        "area": null,
+        "rent": null,
+        "capex": null,
+        "annual_sales": null,
+        "gross_margin": null,
+        "payroll": null,
+        "utilities": null,
+        "logistics": null,
+        "other_opex": null
+      }
+    }
+  ],
+  "facilities": [
+    {
+      "name": "Gebrüder Weiss Tbilisi",
+      "operator": "Gebrüder Weiss",
+      "type": "Warehouse / logistics terminal",
+      "address": "4 Europe Street, Tbilisi, Georgia",
+      "services": "Warehousing, customs support, road/rail and sea/air freight coordination; capacity and retail picking SLA require quotation.",
+      "delivery_zone": "Georgia and Caucasus services advertised; store delivery SLA unquoted.",
+      "sources": [
+        "gw",
+        "gw_services"
+      ],
+      "lat": 41.6886902,
+      "lon": 44.9569413,
+      "coordinate_precision": "OSM mapped logistics site; gate unverified",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=Gebruder+Weiss%2C+Tbilisi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 222863638,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "Poti Logistical Park",
+      "operator": "PLP",
+      "type": "Bonded terminal / dry warehouses",
+      "address": "4 Paliashvili Street, Poti 4400, Georgia",
+      "services": "Containers, bonded storage, cargo handling, road/rail coordination; two dry warehouses advertised.",
+      "delivery_zone": "Poti gateway and onward regional flows; no dedicated Jumbo distribution agreement.",
+      "sources": [
+        "plp",
+        "plp_storage"
+      ],
+      "lat": 42.1688027,
+      "lon": 41.6718368,
+      "coordinate_precision": "Address building geocode; terminal gate unverified",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=4+Paliashvili+Street%2C+Poti%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 1301278156,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "Georgian Trans Expedition Poti",
+      "operator": "GTE",
+      "type": "Container terminal / bonded and non-bonded warehouses",
+      "address": "1 Kokaia Alley, Poti 4400, Georgia",
+      "services": "Container storage, loading, bonded/non-bonded storage, rail transfers, repacking and labelling.",
+      "delivery_zone": "Poti gateway / onward forwarding; local store distribution SLA unquoted.",
+      "sources": [
+        "gte",
+        "maersk"
+      ],
+      "lat": 42.1703387,
+      "lon": 41.6752547,
+      "coordinate_precision": "Street-level geocode only; not warehouse gate",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=1+Kokaia+Alley%2C+Poti%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 102254674,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "Poti Sea Port",
+      "operator": "APM Terminals",
+      "type": "Seaport / container gateway",
+      "address": "52 D. Aghmashenebeli Street, Poti 4400, Georgia",
+      "services": "Container gateway listed by Maersk; linked truck and rail options to inland Georgia.",
+      "delivery_zone": "Import gateway; not a retail distribution centre.",
+      "sources": [
+        "maersk"
+      ],
+      "lat": 42.1428034,
+      "lon": 41.6738965,
+      "coordinate_precision": "Street-level address geocode only; not berth or gate",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=52+Davit+Aghmashenebeli+Street%2C+Poti%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 582036546,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "APMT Container Yard",
+      "operator": "APM Terminals",
+      "type": "Container yard / inland hub",
+      "address": "32 Javakhishvili Street, Poti 4400, Georgia",
+      "services": "Listed container yard; not verified as an order-picking warehouse.",
+      "delivery_zone": "Poti container flows; retail distribution not established.",
+      "sources": [
+        "maersk"
+      ],
+      "lat": 42.1595869,
+      "lon": 41.6629208,
+      "coordinate_precision": "Street-level geocode only; not yard gate",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=32+Javakhishvili+Street%2C+Poti%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 480371903,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "Batumi International Container Terminal",
+      "operator": "BICT / ICTSI",
+      "type": "Container / ferry / general-cargo terminal",
+      "address": "11 Baku Street, Batumi 6010, Georgia",
+      "services": "Container handling, ferry/general cargo and terminal customs-clearance zone.",
+      "delivery_zone": "Alternative maritime gateway; onward road/rail plan needs quotation.",
+      "sources": [
+        "bict",
+        "bict_services"
+      ],
+      "lat": 41.6473944,
+      "lon": 41.6590569,
+      "coordinate_precision": "Contact-address building geocode; terminal gate unverified",
+      "coordinate_source": "https://nominatim.openstreetmap.org/search?q=11+Baku+Street%2C+Batumi%2C+Georgia&format=jsonv2&limit=1&addressdetails=1",
+      "osm_type": "way",
+      "osm_id": 411822065,
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "Tbilisi Warehouse · Didi Lilo",
+      "operator": "Tbilisi Warehouse",
+      "type": "Warehouse property for lease; 3PL operations not established",
+      "address": "Aleksandre Kartvelishvili Street, Plot 726, Didi Lilo, Tbilisi 0190, Georgia",
+      "services": "Warehouse / industrial property rental; vacancy, operating service and WMS not verified.",
+      "delivery_zone": "Property location only; delivery network not established.",
+      "sources": [
+        "warehouse"
+      ],
+      "lat": null,
+      "lon": null,
+      "coordinate_precision": "Plot not resolved: omitted from point map; street centroid is not the warehouse",
+      "checked_at": "2026-10-16"
+    },
+    {
+      "name": "PLP Tbilisi office",
+      "operator": "PLP",
+      "type": "Office only · excluded from warehouse map",
+      "address": "Merani Business Center, 31a Griboedov Street, Tbilisi 0108, Georgia",
+      "services": "Administrative / commercial office; not warehousing.",
+      "delivery_zone": "Not applicable.",
+      "sources": [
+        "plp"
+      ],
+      "lat": null,
+      "lon": null,
+      "coordinate_precision": "Office intentionally not mapped as a warehouse",
+      "checked_at": "2026-10-16"
+    }
+  ],
+  "sources": {
+    "eastpoint_toys": "https://eastpoint.ge/en/place/super-toys/?id=1St+Floor+EN&title=Super+Toys",
+    "eastpoint": "https://eastpoint.ge/en/",
+    "miniso": "https://miniso.ge/en/philialebi/",
+    "saburtalo": "https://thecitymall.ge/en/city-mall-saburtalo/services",
+    "saburtalo_access": "https://thecitymall.ge/en/city-mall-saburtalo/contact",
+    "saburtalo_toys": "https://thecitymall.ge/en/city-mall-saburtalo/brands?categories=toys",
+    "gldani": "https://thecitymall.ge/en/city-mall-gldani/services",
+    "gldani_access": "https://thecitymall.ge/en/city-mall-gldani/contact",
+    "gldani_toys": "https://thecitymall.ge/en/city-mall-gldani/brands?categories=kids",
+    "galleria": "https://www.galleria.ge/en/contact",
+    "tbilisimall": "https://tbilisimall.com/",
+    "superstore": "https://superstore.ge/en/our-stores/",
+    "gw": "https://www.gw-world.com/us/company/locations/georgia/tbilisi",
+    "gw_services": "https://www.gw-world.com/newsroom/en-us/gebrueder-weiss-expands-its-logistics-center-in-tbilisi/",
+    "plp": "https://www.plpport.com/faq",
+    "plp_storage": "https://www.plpport.com/about-us",
+    "bict": "https://bict.ge/contact",
+    "bict_services": "https://bict.ge/services",
+    "maersk": "https://www.maersk.com/local-information/europe/georgia/local-solutions/inland-services",
+    "gte": "https://www.gte.ge/en/services/terminal-8",
+    "warehouse": "https://tbilisi-warehouse.ge/chvens-shesaxeb-en/",
+    "raben": "https://www.raben-group.com/about-us/raben-group-in-europe",
+    "customs": "https://www.rs.ge/CommodityCodes-en?cat=1&tab=1",
+    "customs_pre": "https://eservices.rs.ge/ServiceRequestNew.aspx?p=176",
+    "worldpop": "https://api.worldpop.org/v2/",
+    "worldpop_age": "https://apps.worldpop.org/woprVision/woprAPI.html"
+  },
+  "routes": [
+    {
+      "option": "Sea container → Poti → Tbilisi 3PL → stores",
+      "status": "Preferred hypothesis for comparison",
+      "basis": "Poti gateway plus Maersk inland truck/rail and an operating Tbilisi logistics hub are verified; origin sailing and connection unquoted.",
+      "missing": "Origin port, Incoterms, FCL/LCL volume, sailing schedule, THC, free time, demurrage/detention and destination rates."
+    },
+    {
+      "option": "Sea container → Batumi → Tbilisi",
+      "status": "Alternative gateway",
+      "basis": "BICT container/ferry/general-cargo operations confirmed. Choose only after comparable carrier and inland quotations.",
+      "missing": "Actual origin connection, service frequency, terminal charges and inland haulage."
+    },
+    {
+      "option": "Road via Türkiye → Georgia → Tbilisi",
+      "status": "Alternative / replenishment hypothesis",
+      "basis": "Gebrüder Weiss advertises land transport; Raben has a Türkiye network but no Georgian own depot was found in its country directory.",
+      "missing": "Named carrier/partner, border crossing, capacity, customs transit, cargo eligibility, current rate and promised service."
+    },
+    {
+      "option": "Rail / intermodal to Tbilisi; air for exceptional shortages",
+      "status": "Case-by-case alternatives",
+      "basis": "Maersk lists Poti–Tbilisi rail/door service; GW lists rail and air capabilities.",
+      "missing": "Shipment size economics, schedule, handling, final mile, origin availability and insurance."
+    }
+  ],
+  "storage_options": [
+    {
+      "model": "3PL near Tbilisi",
+      "advantage": "Variable commitment and existing operating capability near five candidate stores.",
+      "tradeoff": "Contract minimums, peak capacity, picking accuracy, WMS integration and rates require verification."
+    },
+    {
+      "model": "Port buffer / cross-dock + Tbilisi 3PL",
+      "advantage": "Separate import processing from local store replenishment.",
+      "tradeoff": "Extra handling and stock duplication; justified only if port delays, volume or flows require it."
+    },
+    {
+      "model": "Leased warehouse operated by Jumbo",
+      "advantage": "Control of layout and processes.",
+      "tradeoff": "Lease, staffing, equipment, systems, insurance and utilisation must be costed; a property listing is not an operating 3PL."
+    },
+    {
+      "model": "Own warehouse",
+      "advantage": "Long-term control if volume and network are stable.",
+      "tradeoff": "Land/building CAPEX, fit-out, working capital and utilisation risk; no acquisition case established."
+    },
+    {
+      "model": "Cross-border supply / direct to store",
+      "advantage": "May avoid a dedicated national DC at very small scale.",
+      "tradeoff": "Test replenishment reliability, customs per load, store backroom capacity and seasonal buffers; no service assumed."
+    }
+  ],
+  "customs": "Before shipment: confirm importer of record, HS code per SKU, origin evidence, invoice/packing list and transport documents. Revenue Service HS module determines duties, VAT, exemptions and documents. Declare and follow the assigned control channel; use bonded transit/storage only under the applicable procedure. EU dispatch does not itself establish preferential EU origin. No blanket duty rate or clearance duration is assumed.",
+  "raben_status": "Preferred operator to consider for origin / Türkiye / partner solutions. Georgian own warehouse, last-mile network and rates are not confirmed; its current official country directory does not list Georgia. No messages or quotation requests sent.",
+  "unknowns": [
+    "Available Jumbo-size units and landlord offers",
+    "Area, rent, service charges, CAPEX, sales and operating assumptions",
+    "Measured footfall, purchasing power and local assortment/price checks",
+    "Origin port/DC, annual container/pallet volume, seasonal stock and SKU profile",
+    "Warehouse capacity, retail picking, transport SLA and total landed-cost quotations",
+    "Complete competitive inventory and peak-hour delivery access"
+  ]
+}

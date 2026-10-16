@@ -157,3 +157,18 @@ def test_access_metrics_respect_displayed_radius(app_test):
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Transit stops / 1.5 km"] == "1"
     assert metrics["Named major roads / 1.5 km"] == "1"
+
+
+def test_workspace_save_retains_only_matching_site_evidence(app_test):
+    at = app_test
+    name = "Karavan Mall, Kyiv - Base"
+    at.selectbox(key="project_selector").select(name).run()
+    analyze(at, "Karavan Mall, Kyiv")
+    click(at, "Save changes")
+    record = at.session_state["project_library"][name]
+    assert record["analysis_snapshot"]["query"] == record["location"]
+    assert record["analysis_snapshot"]["completed_at"]
+    assert record["annual_sales"] == 5000000.0
+    at.text_input(key="location_query").set_value("Other site")
+    click(at, "Save changes")
+    assert "analysis_snapshot" not in at.session_state["project_library"][name]

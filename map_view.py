@@ -37,9 +37,11 @@ if (typeof L !== 'undefined') {
  const status=document.getElementById('status');
  const legend=document.getElementById('legend');
  const grouped=data.points.some(p=>p.kind);
+ const logistics=data.points.some(p=>p.kind==='warehouse'||p.kind==='gateway');
  const selectedMarkers=[];
  // Static legend labels; provider content is always written with textContent.
- if(data.points.some(p=>p.rank)){legend.textContent='Numbered markers · ranked candidate sites';}
+ if(logistics){legend.innerHTML='<span><i style="background:#087f74"></i>Candidate malls</span><span><i style="background:#7047a5"></i>Warehouses / logistics terminals</span><span><i style="background:#386caa"></i>Gateways / container yards</span>';}
+ else if(data.points.some(p=>p.rank)){legend.textContent='Numbered markers · ranked candidate sites';}
  else if(grouped){legend.innerHTML='<span><i class="selected-dot"></i>Selected site</span><span><i></i>Direct competitors</span><span><i class="anchor-dot"></i>Other retail anchors</span>';}
  else{legend.innerHTML='<span><i class="selected-dot"></i>Selected site</span><span><i></i>Mapped places</span>';}
  const map=L.map('map',{scrollWheelZoom:false}).setView(data.center,data.zoom);
@@ -59,13 +61,18 @@ if (typeof L !== 'undefined') {
   }).addTo(map);
   if(polygons.getBounds().isValid())bounds.extend(polygons.getBounds());
  }
- const groups={competitor:L.layerGroup(),anchor:L.layerGroup(),parking:L.layerGroup(),other:L.layerGroup()};
+ const groups={competitor:L.layerGroup(),anchor:L.layerGroup(),parking:L.layerGroup(),other:L.layerGroup(),candidate:L.layerGroup(),warehouse:L.layerGroup(),gateway:L.layerGroup()};
  if(grouped){
-  groups.competitor.addTo(map);groups.anchor.addTo(map);
-  L.control.layers(null,{
+  if(logistics){
+   groups.candidate.addTo(map);groups.warehouse.addTo(map);groups.gateway.addTo(map);
+   L.control.layers(null,{'Candidate malls':groups.candidate,'Warehouses / terminals':groups.warehouse,'Gateways / yards':groups.gateway},{collapsed:true}).addTo(map);
+  }else{
+   groups.competitor.addTo(map);groups.anchor.addTo(map);
+   L.control.layers(null,{
    'Direct competitors':groups.competitor,'Other retail anchors':groups.anchor,
    'Parking':groups.parking,'Other mapped places':groups.other
-  },{collapsed:true}).addTo(map);
+   },{collapsed:true}).addTo(map);
+  }
  }
  // The site is always visible, independent of optional context layers.
  for(const p of [...data.points].sort((a,b)=>Number(Boolean(a.selected))-Number(Boolean(b.selected)))){
@@ -74,7 +81,7 @@ if (typeof L !== 'undefined') {
   let marker;
   if(p.rank){marker=L.marker(pos,{title:label,icon:L.divIcon({className:'site-number',html:String(Number(p.rank)),iconSize:[28,28],iconAnchor:[14,14]})});}
   else{
-   const color=({competitor:'#c86b43',anchor:'#386caa',parking:'#647b8d',other:'#899ba6'})[p.kind]||'#ce734d';
+   const color=({competitor:'#c86b43',anchor:'#386caa',parking:'#647b8d',other:'#899ba6',candidate:'#087f74',warehouse:'#7047a5',gateway:'#386caa'})[p.kind]||'#ce734d';
    if(p.selected){selectedMarkers.push(L.circleMarker(pos,{radius:18,color:'#087f74',fillColor:'#087f74',weight:1,fillOpacity:0.15,interactive:false}).addTo(map));}
    marker=L.circleMarker(pos,{radius:p.selected?11:p.kind==='other'?3:5,color:p.selected?'#ffffff':color,fillColor:p.selected?'#087f74':color,weight:p.selected?3:1,fillOpacity:p.selected?1:0.8});
   }
