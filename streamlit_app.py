@@ -1282,7 +1282,12 @@ def build_project_comparison(projects):
     df["_positive_ebitda"] = df["EBITDA"].fillna(float("-inf")) > 0
     df["_payback_sort"] = df["Payback, years"].fillna(float("inf"))
     df["_margin_sort"] = df["EBITDA margin, %"].fillna(float("-inf"))
-    df["_density_sort"] = df["Sales density / m²"].fillna(float("-inf"))
+    # Nominal sales density cannot break ties across currencies without FX data.
+    # Keep dimensionless payback/margins comparable and preserve ties stably.
+    single_currency = df["Currency"].nunique(dropna=False) == 1
+    df["_density_sort"] = (
+        df["Sales density / m²"].fillna(float("-inf")) if single_currency else 0
+    )
     df = df.sort_values(
         by=["_positive_ebitda", "_payback_sort", "_margin_sort", "_density_sort"],
         ascending=[False, True, False, False],
@@ -1292,6 +1297,20 @@ def build_project_comparison(projects):
     return df.drop(
         columns=["_positive_ebitda", "_payback_sort", "_margin_sort", "_density_sort"]
     )
+
+
+def build_ebitda_comparison_charts(comparison):
+    """Keep EBITDA in its saved currency; never imply an exchange rate."""
+    if comparison.empty:
+        return {}
+    charts = {}
+    for currency, rows in comparison.dropna(subset=["EBITDA"]).groupby(
+        "Currency", sort=False, dropna=False
+    ):
+        label = str(currency) if pd.notna(currency) and str(currency).strip() else "Unknown currency"
+        charts[label] = rows.set_index("Project")[["EBITDA"]]
+    return charts
+
 
 def distance_km(lat1, lon1, lat2, lon2):
     if lat2 is None or lon2 is None:
@@ -2261,10 +2280,19 @@ with st.expander("Portfolio · comparison & project pipeline", expanded=False):
     comparison_df = build_project_comparison(saved_projects)
     if len(comparison_df) >= 2:
         st.markdown("### Portfolio comparison")
+        mixed_currencies = comparison_df["Currency"].nunique(dropna=False) > 1
         st.caption(
             "Commercial priority uses saved assumptions only: positive EBITDA first, then faster payback, "
-            "higher EBITDA margin and higher sales density. It is a screening order, not a final investment approval."
+            + ("and higher EBITDA margin. Sales density is not a cross-currency ranking factor. "
+               if mixed_currencies else "higher EBITDA margin and higher sales density. ")
+            + "It is a screening order, not a final investment approval."
         )
+        if mixed_currencies:
+            st.info(
+                "Projects use different currencies. Monetary values stay in their saved currency; "
+                "no exchange-rate conversion is applied. EBITDA charts have separate currency scales "
+                "and must not be compared as common-currency amounts."
+            )
 
         lead = comparison_df.iloc[0]
         p1, p2, p3, p4 = st.columns(4)
@@ -2382,10 +2410,12 @@ with st.expander("Portfolio · comparison & project pipeline", expanded=False):
                 st.session_state["_project_flash"] = f"Opening full analysis: {pipeline_name}"
                 st.rerun()
 
-        chart_data = comparison_df.dropna(subset=["EBITDA"]).set_index("Project")[["EBITDA"]]
-        if not chart_data.empty:
+        ebitda_charts = build_ebitda_comparison_charts(comparison_df)
+        if ebitda_charts:
             st.markdown("#### EBITDA comparison")
-            st.bar_chart(chart_data, use_container_width=True)
+            for currency, chart_data in ebitda_charts.items():
+                st.caption(f"EBITDA · {currency} · saved currency, no conversion")
+                st.bar_chart(chart_data, use_container_width=True)
     else:
         st.info(
             "Portfolio comparison will appear after at least two projects are saved. "
