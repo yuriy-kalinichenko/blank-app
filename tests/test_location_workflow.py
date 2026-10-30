@@ -119,8 +119,8 @@ def test_economics_matches_independent_baseline_and_fallbacks_are_labelled(app_t
     assert metrics["Annual rent"] == "€270,000"
     assert metrics["Estimated EBITDA"] == "€1,740,000"
     assert metrics["CAPEX payback"] == "1.4 years"
-    assert metrics["15-min drive zone"] == "Proxy"
-    assert metrics["15-min population"] == "—"
+    assert metrics["10-min drive zone"] == "Proxy"
+    assert metrics["10-min population"] == "—"
     assert len(at.tabs) == 6
 
 

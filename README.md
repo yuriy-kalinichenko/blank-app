@@ -4,7 +4,7 @@ Retail location intelligence, site-selection and investment-screening applicatio
 
 ## Release candidate
 
-**2026-10-15-v1.1-rc3**
+**2026-10-30-v1.1-rc4**
 
 This release candidate freezes the core product workflow. New large feature layers should be added only after the release-candidate workflow passes real-site validation.
 
@@ -24,7 +24,7 @@ The layout uses our own styles and native widgets; it includes no vendor artwork
 
 1. Create or select a project.
 2. Enter a candidate site and run live location analysis.
-3. Review real 15/30/40-minute drive-time catchments.
+3. Review real 10/20/30-minute drive-time catchments.
 4. Review total population and children 0-18 inside the displayed catchments.
 5. Review access, nearby retail and competitive context.
 6. Enter commercial assumptions and review economics.
@@ -65,8 +65,8 @@ In Supabase **Authentication → URL Configuration**, set the Site URL and allow
 ## Location intelligence
 
 - OpenStreetMap geocoding for candidate sites.
-- Valhalla/OpenStreetMap road-network isochrones for **15 / 30 / 40 minute** car catchments.
-- Clearly labelled 6/12/16 km fallback proxies if routing is unavailable.
+- Valhalla/OpenStreetMap road-network isochrones for **10 / 20 / 30 minute** car catchments.
+- Clearly labelled 4/8/12 km fallback proxies if routing is unavailable.
 - WorldPop 2025 total population inside the displayed catchment polygons.
 - WorldPop age/sex population age 0-18 inside the same catchments.
 - OpenStreetMap retail, competition, parking, roads and public-transport context.

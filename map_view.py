@@ -54,7 +54,7 @@ if (typeof L !== 'undefined') {
  if(data.geojson){
   const features=[...(data.geojson.features||[])].sort((a,b)=>(b.properties?.minutes||0)-(a.properties?.minutes||0));
   const polygons=L.geoJSON({type:'FeatureCollection',features},{
-   style:f=>({color:({15:'#27ae60',30:'#2980b9',40:'#8e44ad'})[f.properties?.minutes]||'#2980b9',weight:2,fillOpacity:0.12}),
+   style:f=>({color:({10:'#27ae60',20:'#2980b9',30:'#8e44ad'})[f.properties?.minutes]||'#2980b9',weight:2,fillOpacity:0.12}),
    onEachFeature:(f,l)=>l.bindPopup(text(String(f.properties?.minutes||'')+' min'+(f.properties?.proxy?' · approximate radius, not a route calculation':'')))
   }).addTo(map);
   if(polygons.getBounds().isValid())bounds.extend(polygons.getBounds());

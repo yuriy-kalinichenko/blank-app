@@ -62,3 +62,20 @@ def test_overpass_failure_uses_shared_map_coverage(monkeypatch):
     rows=ns['fetch_golden_context'](41.328,19.818,[{'lat':41.328,'lon':19.818}])
     assert len(rows)==1 and rows[0]['amenity']=='parking'
     assert rows[0]['discovery_source'].startswith('OpenStreetMap Map API')
+
+
+def test_catchment_contract_uses_agreed_10_20_30_minute_zones():
+    # Import only provider definitions so the contract stays independent of UI state.
+    source = (
+        Path(__file__).resolve().parents[1] / 'streamlit_app.py'
+    ).read_text().split('for state_key, state_value in BASE_ECON_STATE.items():')[0]
+    ns = {}
+    exec(compile(source, 'streamlit_app.py', 'exec'), ns)
+
+    assert ns['DRIVE_TIME_MINUTES'] == (10, 20, 30)
+    proxy = ns['build_drive_time_proxy_geojson'](50.45, 30.52)
+    assert [feature['properties']['minutes'] for feature in proxy['features']] == [10, 20, 30]
+    assert [feature['properties']['proxy_radius_km'] for feature in proxy['features']] == [4, 8, 12]
+
+    page = map_html([], center=(50.45, 30.52), geojson=proxy)
+    assert "{10:'#27ae60',20:'#2980b9',30:'#8e44ad'}" in page

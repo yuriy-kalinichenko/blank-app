@@ -55,8 +55,8 @@ USER_AGENT = "JumboLocationAnalyzer/1.0 (site-selection decision support)"
 WORLDPOP_URL = "https://api.worldpop.org/v2"
 VALHALLA_ISOCHRONE_URL = "https://valhalla1.openstreetmap.de/isochrone"
 VALHALLA_CLIENT_ID = "jumbo-location-analyzer"
-DRIVE_TIME_MINUTES = (15, 30, 40)
-BUILD_VERSION = "2026-10-15-v1.1-rc3"
+DRIVE_TIME_MINUTES = (10, 20, 30)
+BUILD_VERSION = "2026-10-30-v1.1-rc4"
 GOLDEN_SEARCH_RADIUS_KM = 20
 _SCREENING_NETWORK = ContextVar("screening_network", default=None)
 
@@ -762,7 +762,7 @@ def fetch_drive_time_isochrones(lat, lon, minutes=DRIVE_TIME_MINUTES):
 
 def build_drive_time_proxy_geojson(lat, lon):
     """Clearly labelled fallback circles; never presented as real road-network isochrones."""
-    proxy_radii_km = {15: 6, 30: 12, 40: 16}
+    proxy_radii_km = {10: 4, 20: 8, 30: 12}
     return {
         "type": "FeatureCollection",
         "features": [
@@ -2663,6 +2663,7 @@ with analysis_slot:
 
                         st.session_state["analysis"] = {
                             "query": location.strip(),
+                            "drive_time_minutes": list(DRIVE_TIME_MINUTES),
                             "geo": geo,
                             "retail": retail,
                             "retail_source": retail_source,
@@ -2683,6 +2684,13 @@ with analysis_slot:
                         }
                 except Exception as exc:
                     st.error(f"Could not locate the site: {exc}")
+
+# Invalidate analysis created by a previous catchment contract. This prevents
+# old 15/30/40-minute polygons from being labelled as the current 10/20/30 set
+# in a long-lived browser session after a deployment.
+current_analysis = st.session_state.get("analysis")
+if current_analysis and tuple(current_analysis.get("drive_time_minutes", ())) != DRIVE_TIME_MINUTES:
+    st.session_state.pop("analysis", None)
 
 # Update the existing workspace caption after success or failure, without a
 # second script run or another request to the external data providers.
@@ -2896,7 +2904,7 @@ with analysis_slot:
         with tab1:
             st.markdown("### Decision dashboard")
             st.info(
-                "Decision view combines site geocoding, 15/30/40-minute drive-time catchments, "
+                "Decision view combines site geocoding, 10/20/30-minute drive-time catchments, "
                 "population and children demand, retail/competition context, access and commercial economics. "
                 "Measured footfall and a calibrated Jumbo sales forecast remain separate future data/model layers."
             )
@@ -2921,12 +2929,12 @@ with analysis_slot:
                         ("Live in drive-time polygons" if drive_time_live else "Proxy-zone population")
                         if population_complete
                         else "Needs retry",
-                        "WorldPop 2025 inside the displayed 15/30/40-minute zones",
+                        "WorldPop 2025 inside the displayed 10/20/30-minute zones",
                     ],
                     [
                         "Children 0-18",
                         "Live" if children_complete else "Needs retry",
-                        "WorldPop age/sex inside the displayed 15/30/40-minute zones",
+                        "WorldPop age/sex inside the displayed 10/20/30-minute zones",
                     ],
                     ["Traffic & access", "Live proxy" if access_complete else "Needs retry", "OpenStreetMap roads, transit and parking"],
                     ["Foot & car traffic counts", "Next layer", "Mobility / traffic provider"],
@@ -2954,7 +2962,7 @@ with analysis_slot:
             st.markdown("### Catchment & demand")
             st.caption(f"Build: {BUILD_VERSION}")
             st.write(
-                "Primary catchment view: 15-, 30- and 40-minute car reach from the candidate site. "
+                "Primary catchment view: 10-, 20- and 30-minute car reach from the candidate site. "
                 "When live routing is available these are road-network isochrones, not simple radii."
             )
 
@@ -2971,12 +2979,12 @@ with analysis_slot:
             if drive_time_live:
                 st.success(
                     "Drive-time source: Valhalla / OpenStreetMap road network. "
-                    "Contours shown are real routing isochrones for 15, 30 and 40 minutes."
+                    "Contours shown are real routing isochrones for 10, 20 and 30 minutes."
                 )
             else:
                 st.warning(
                     "Live routing was unavailable, so the map uses clearly labelled distance proxies "
-                    "(6/12/16 km for 15/30/40 minutes). These are not road-network isochrones."
+                    "(4/8/12 km for 10/20/30 minutes). These are not road-network isochrones."
                 )
                 if analysis.get("drive_time_error"):
                     with st.expander("Drive-time provider diagnostic", expanded=False):
@@ -2984,22 +2992,21 @@ with analysis_slot:
 
             st.markdown("#### Population inside catchment")
             st.caption(
-                "WorldPop 2025 is calculated inside the same 15/30/40-minute zones shown on the map. "
+                "WorldPop 2025 is calculated inside the same 10/20/30-minute zones shown on the map. "
                 "When live routing is available, these are real road-network polygons."
             )
 
-            pop15 = population.get("15 min", {}).get("total_population")
-            pop30 = population.get("30 min", {}).get("total_population")
-            pop40 = population.get("40 min", {}).get("total_population")
-
-            d1, d2, d3 = st.columns(3)
-            d1.metric("15-min population", f"{pop15:,.0f}" if pop15 is not None else "—")
-            d2.metric("30-min population", f"{pop30:,.0f}" if pop30 is not None else "—")
-            d3.metric("40-min population", f"{pop40:,.0f}" if pop40 is not None else "—")
+            demand_cols = st.columns(len(DRIVE_TIME_MINUTES))
+            for column, minutes in zip(demand_cols, DRIVE_TIME_MINUTES):
+                population_value = population.get(f"{minutes} min", {}).get("total_population")
+                column.metric(
+                    f"{minutes}-min population",
+                    f"{population_value:,.0f}" if population_value is not None else "—",
+                )
 
             if population_complete and drive_time_live:
                 st.success(
-                    "WorldPop status: population loaded for all three real 15/30/40-minute drive-time polygons."
+                    "WorldPop status: population loaded for all three real 10/20/30-minute drive-time polygons."
                 )
             elif population_complete:
                 st.warning(
@@ -3055,14 +3062,15 @@ with analysis_slot:
                 st.code("No detailed WorldPop error was captured in this build.")
 
             st.markdown("#### Children demand")
-            child15 = children_population.get("15 min", {}).get("children_population")
-            child30 = children_population.get("30 min", {}).get("children_population")
-            child40 = children_population.get("40 min", {}).get("children_population")
-
-            ch1, ch2, ch3 = st.columns(3)
-            ch1.metric("Children 0-18 / 15 min", f"{child15:,.0f}" if child15 is not None else "—")
-            ch2.metric("Children 0-18 / 30 min", f"{child30:,.0f}" if child30 is not None else "—")
-            ch3.metric("Children 0-18 / 40 min", f"{child40:,.0f}" if child40 is not None else "—")
+            child_cols = st.columns(len(DRIVE_TIME_MINUTES))
+            for column, minutes in zip(child_cols, DRIVE_TIME_MINUTES):
+                children_value = children_population.get(f"{minutes} min", {}).get(
+                    "children_population"
+                )
+                column.metric(
+                    f"Children 0-18 / {minutes} min",
+                    f"{children_value:,.0f}" if children_value is not None else "—",
+                )
 
             child_rows = []
             for minutes in DRIVE_TIME_MINUTES:
@@ -3611,15 +3619,15 @@ with analysis_slot:
                 "It is not a measured car-count or footfall metric. Real traffic counts remain blank until a measured mobility/traffic source is connected."
             )
             st.write(
-                "**Catchment:** the app requests 15/30/40-minute car isochrones from Valhalla using the OpenStreetMap road network. "
+                "**Catchment:** the app requests 10/20/30-minute car isochrones from Valhalla using the OpenStreetMap road network. "
                 "WorldPop population and children 0-18 are calculated inside the same displayed polygons. "
-                "If routing is unavailable, the app switches to explicitly labelled 6/12/16 km proxy zones rather than presenting them as true drive-time."
+                "If routing is unavailable, the app switches to explicitly labelled 4/8/12 km proxy zones rather than presenting them as true drive-time."
             )
 
             provider_rows = [
                 ["OpenStreetMap / Overpass", "Retail POIs + roads/transit", "Active with multiple public mirrors", "No API key"],
                 ["OpenStreetMap Map API", "Emergency local fallback for POIs + roads/transit", "Active for small local bounding boxes", "No API key"],
-                ["Valhalla / OpenStreetMap", "15/30/40-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
+                ["Valhalla / OpenStreetMap", "10/20/30-minute car isochrones", "Active with explicit proxy fallback", "No API key"],
                 ["WorldPop", "Population + age 0-18 inside catchments", "Active when service responds", "No key in current implementation"],
                 ["Google Places", "Independent retail fallback", "Ready" if get_secret("GOOGLE_MAPS_API_KEY") else "Not configured", "GOOGLE_MAPS_API_KEY"],
                 ["HERE Discover", "Independent retail fallback", "Ready" if get_secret("HERE_API_KEY") else "Not configured", "HERE_API_KEY"],
