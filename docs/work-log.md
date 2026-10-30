@@ -13,5 +13,5 @@
   - read-only SQL `SELECT 1`: succeeded;
   - current application Data API path, using the configured publishable key and `limit=0`: HTTP 401 Unauthorized; no project contents were returned;
   - no authenticated app user session was available for a second Data API read check. This is a configuration/access blocker and no key or permission was changed. A successful SQL health query does not guarantee that automatic pausing is disabled.
-- Verification: pending local static checks and pull-request CI. The local runtime does not contain the repository's required Python 3.14 interpreter or cached Streamlit dependency, so the full test suite must run in the repository CI workflow.
-- Next: review CI, then perform human browser validation of live routing and fallback labels before merge or deployment. Investigate the Data API 401 through the authorized project configuration path without rotating keys or changing permissions in this branch.
+- Verification: local Python compilation, static catchment-contract checks and `git diff --check` passed. GitHub Actions run 41063523010 then passed the Python 3.14 dependency-lock check, compilation and full test suite. The local runtime does not contain Python 3.14 or a cached Streamlit dependency, so CI is the authoritative full-suite result for this run.
+- Next: perform human browser validation of live routing and fallback labels before merge or deployment. Investigate the Data API 401 through the authorized project configuration path without rotating keys or changing permissions in this branch.
