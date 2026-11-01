@@ -1,0 +1,19 @@
+{
+  "provenance": "Transcribed from production rejection diagnostics visually inspected by the parent on 2026-11-01. This is diagnostic evidence, not a full captured geocoder response. No city/region API tags are asserted.",
+  "query": "[mall]",
+  "reason": "missing_name",
+  "name": "",
+  "alternative_names": {},
+  "lat": "50.9524711",
+  "lon": "28.6362222",
+  "osm_type": "way",
+  "osm_id": 1429557871,
+  "category": "shop",
+  "type": "mall",
+  "search_center": {"lat": 50.9080532, "lon": 28.3867504},
+  "city_reference": {
+    "lat": 50.25,
+    "lon": 28.66666667,
+    "source": "https://ungegn.un.org/dashboard/cities/details?id=1198"
+  }
+}

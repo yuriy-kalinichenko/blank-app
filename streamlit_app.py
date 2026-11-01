@@ -211,9 +211,10 @@ def run_overpass_query(query):
 
 
 @st.cache_data(ttl=3600)
-def geocode_location(query):
+def geocode_location(query, feature_type=None):
     params = urllib.parse.urlencode(
-        {"q": query, "format": "jsonv2", "limit": 1, "addressdetails": 1}
+        {"q": query, "format": "jsonv2", "limit": 5 if feature_type else 1, "addressdetails": 1,
+         **({"featureType": feature_type} if feature_type else {})}
     )
     req = urllib.request.Request(
         f"{NOMINATIM_URL}?{params}", headers={"User-Agent": USER_AGENT}
@@ -221,7 +222,18 @@ def geocode_location(query):
     with urllib.request.urlopen(req, timeout=15) as response:
         data = json.loads(response.read().decode("utf-8"))
     if not data:
+        if feature_type == "city":
+            raise ValueError("No city-level location could be resolved. Specify the city and country; a region cannot be used as the city search centre.")
         return None
+    if feature_type == "city":
+        # Golden Spot screens a city, not the centroid of its namesake region.
+        # Validate even if a provider ignores featureType; never silently fall
+        # back to a state/county after a city-only query returns no city.
+        settlements = {"city", "town", "village", "hamlet", "municipality"}
+        data = [item for item in data
+                if (item.get("addresstype") or item.get("type")) in settlements]
+        if not data:
+            raise ValueError("No city-level location could be resolved. Specify the city and country; a region cannot be used as the city search centre.")
     item = data[0]
     bbox = item.get("boundingbox") or []
     parsed_bbox = None
@@ -241,6 +253,7 @@ def geocode_location(query):
         "lon": float(item["lon"]),
         "display_name": item.get("display_name", query),
         "bbox": parsed_bbox,
+        "resolution_type": item.get("addresstype") or item.get("type"),
     }
 
 
@@ -1361,9 +1374,18 @@ def distance_km(lat1, lon1, lat2, lon2):
     return 2 * radius * math.asin(math.sqrt(a))
 
 
+def mapped_venue_name(name, kind, osm_type, osm_id):
+    """An identity label is not an invented business name or verified premises."""
+    if name:
+        return name
+    if kind in VENUE_TYPES and osm_type in {"node", "way", "relation"} and osm_id:
+        return f"Unnamed mapped {kind.replace('_', ' ')} (OSM {osm_type}/{osm_id})"
+    return ""
+
+
 def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True):
     """Discover named retail anchors across the city before scoring them."""
-    geocoded = geocode_location(city_query)
+    geocoded = geocode_location(city_query, feature_type="city")
     if not geocoded:
         return []
 
@@ -1497,6 +1519,8 @@ def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True)
                 or namedetails.get("name")
                 or item.get("name") or ""
             )
+            name = mapped_venue_name(name, (item.get("extratags") or {}).get("shop") or item.get("type"),
+                                     item.get("osm_type"), item.get("osm_id"))
             if not name or name.casefold() in generic_names:
                 record_discovery_rejection(query_text, item, "missing_name" if not name else "generic_name", city_lat, city_lon, d_city)
                 continue
@@ -1552,7 +1576,7 @@ def same_retail_destination(first, second):
 
 def search_large_retail_destinations(city_query, limit_per_query=40):
     """Independent discovery path focused only on large named retail destinations."""
-    geocoded = geocode_location(city_query)
+    geocoded = geocode_location(city_query, feature_type="city")
     if not geocoded:
         return []
 
@@ -1625,6 +1649,8 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
                 or item.get("name")
                 or ""
             )
+            name = mapped_venue_name(name, (item.get("extratags") or {}).get("shop") or item.get("type"),
+                                     item.get("osm_type"), item.get("osm_id"))
             if not name or name.casefold() in generic_names:
                 record_discovery_rejection(query_text, item, "missing_name" if not name else "generic_name", city_lat, city_lon, d_city)
                 continue
@@ -1703,7 +1729,8 @@ def fetch_golden_premises(lat, lon):
         except (KeyError, TypeError, ValueError):
             continue
         rows.append({
-            "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
+            "name": mapped_venue_name(tags.get("name:en") or tags.get("name") or tags.get("brand"),
+                                          tags.get("shop"), element.get("type"), element.get("id")) or "Unnamed",
             "lat": a_lat, "lon": a_lon, "tags": tags,
             **{key: tags[key] for key in TAG_KEYS if key in tags},
             "osm_type": element.get("type"), "osm_id": element.get("id"),
@@ -1743,7 +1770,8 @@ def fetch_golden_context(lat, lon, candidates=()):
             if center.get("lat") is None or center.get("lon") is None:
                 continue
             rows.append({
-                "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
+                "name": mapped_venue_name(tags.get("name:en") or tags.get("name") or tags.get("brand"),
+                                          tags.get("shop"), element.get("type"), element.get("id")) or "Unnamed",
                 "lat": float(center["lat"]), "lon": float(center["lon"]),
                 "tags": tags, **{key: tags[key] for key in TAG_KEYS if key in tags},
                 "osm_type": element.get("type"), "osm_id": element.get("id"),
@@ -1783,7 +1811,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
 
 def _build_golden_spot_candidates(city_query, max_results=5):
     """Classify all evidence first; only identifiable retail premises can rank."""
-    geocoded = geocode_location(city_query)
+    geocoded = geocode_location(city_query, feature_type="city")
     if not geocoded:
         return [], None
     lat, lon = geocoded["lat"], geocoded["lon"]
@@ -2540,7 +2568,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         st.session_state.pop("golden_spot_meta", None)
     gs_left, gs_right = st.columns([1.6, 0.8])
     gs_city = gs_left.text_input(
-        "City / area",
+        "City",
         key="golden_spot_city",
         placeholder="Example: Zhytomyr, Ukraine",
     )
@@ -2576,7 +2604,7 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         gs_has_candidates = bool(gs_meta.get("candidate_sites"))
         gs_status = ("Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending") if gs_has_candidates else "No eligible candidate sites returned"
         (st.success if gs_has_candidates else st.info)(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
-        st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
+        st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Type: {gs_meta.get('resolution_type') or 'Unknown'} · Completed: {gs_meta.get('completed_at', '')}")
         if not gs_has_candidates:
             st.warning("No eligible candidate sites were returned by this search. This does not establish that suitable premises are absent. Discovery may be incomplete, or returned objects may lack eligible shopping-destination tags. No top-five ranking is available.")
             if not gs_context_ready:

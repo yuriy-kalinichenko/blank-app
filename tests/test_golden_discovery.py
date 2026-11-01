@@ -40,7 +40,7 @@ def malls():
 
 
 def test_geographic_discovery_includes_suburban_malls_and_dedupes(app, city, malls, monkeypatch):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     requests = []
 
     def search(request, timeout):
@@ -67,7 +67,11 @@ def test_geographic_discovery_includes_suburban_malls_and_dedupes(app, city, mal
     assert "Citypark" in names
     assert "Far away mall" not in names
     assert not any(name.startswith("Rruga ") for name in names)
-    assert len(found) == 16
+    assert len(found) == 18
+    assert sum(not item["name"].startswith("Unnamed mapped ") for item in found) == 16
+    assert {item["osm_id"] for item in found if item["name"].startswith("Unnamed mapped ")} == {
+        item["osm_id"] for item in malls if not item.get("name")
+    }
     assert all(item["kind"] == "mall" for item in found)
     # A new run must fetch discovery again, so transient misses are retryable.
     assert app.search_large_retail_destinations("Tirana") == found
@@ -83,7 +87,7 @@ def test_distinct_nearby_destinations_survive_deduplication(app):
 
 
 def test_discovery_inventory_survives_top_five_limit(app, city, malls, monkeypatch):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     anchors = [{"name": item["name"], "lat": float(item["lat"]),
                 "lon": float(item["lon"]), "kind": "mall"}
                for item in malls if item["name"]]
@@ -200,7 +204,7 @@ def test_failed_surroundings_preserve_discovery_without_ranking(app, monkeypatch
     city = {"lat": 50.25, "lon": 28.66, "display_name": "Test city"}
     # Synthetic names are regression fixtures, not recommended real sites.
     anchors = [{**city, "name": name, "kind": "mall"} for name in ["Zeta", "Alpha"]]
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: anchors)
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
     def fail(*args):
@@ -226,7 +230,7 @@ def test_overpass_partial_response_remains_failure_with_provider_reason(app, mon
 @pytest.mark.parametrize("mode", ["empty", "failed", "ineligible"])
 def test_no_eligible_discovery_reproduces_exact_fallback_branch(app, monkeypatch, mode):
     city = {"lat": 50.25, "lon": 28.66, "display_name": "Test city"}
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     def search(*args, **kwargs):
         if mode == "failed":
             raise TimeoutError("discovery provider timed out")
@@ -275,7 +279,7 @@ def test_real_zhytomyr_reference_is_not_excluded_by_geography_or_unicode(app, zh
 def test_focused_discovery_recovers_premises_without_inventing_context(app, monkeypatch):
     # Entire provider payload is synthetic; this tests orchestration, not live OSM.
     city = {"lat": 50.25, "lon": 28.66, "display_name": "Test city"}
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
     queries = []
@@ -320,7 +324,7 @@ def test_focused_discovery_preserves_classification_and_rejects_invalid_geometry
 
 
 def test_focused_discovery_not_requested_when_geocoder_found_premises(app, city, monkeypatch):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [{**city, "name": "Synthetic Mall", "kind": "mall"}])
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
     monkeypatch.setattr(app, "fetch_golden_context", lambda *args: [])
@@ -331,7 +335,7 @@ def test_focused_discovery_not_requested_when_geocoder_found_premises(app, city,
 
 
 def test_focused_discovery_failure_does_not_skip_full_context_discovery(app, city, monkeypatch):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
     def fail(*args):
@@ -346,13 +350,13 @@ def test_focused_discovery_failure_does_not_skip_full_context_discovery(app, cit
 
 @pytest.mark.parametrize("search_name", ["search_large_retail_destinations", "search_retail_anchors"])
 def test_discovery_rejections_explain_filters_without_changing_results(app, city, monkeypatch, search_name):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     good = {"name": "Synthetic Mall", "lat": str(city["lat"]), "lon": str(city["lon"]),
             "type": "mall", "category": "shop", "osm_type": "way", "osm_id": 123}
     rows = [
         {**good, "lat": "invalid", "name": "Bad coordinates"},
         {**good, "lat": "45", "name": "Distant Mall"},
-        {**good, "name": "", "namedetails": {"name:uk": "Тестовий центр"}},
+        {**good, "name": "", "type": "retail", "namedetails": {"name:uk": "Тестовий центр"}},
         {**good, "name": "shopping mall"},
         good, good,
     ]
@@ -399,7 +403,7 @@ def test_rejection_diagnostics_are_bounded_and_exclude_unselected_payload_fields
 
 
 def test_provider_stages_show_exhaustion_without_changing_recovery(app, city, monkeypatch):
-    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "geocode_location", lambda _, **kwargs: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
     def premises(*args):
@@ -419,3 +423,76 @@ def test_provider_stages_show_exhaustion_without_changing_recovery(app, city, mo
     assert stages[1]["remaining_seconds"] == {"overpass": 0., "map": 90.}
     assert stages[1]["limited_pools"] == ["overpass"]
     assert stages[2]["remaining_seconds"] == stages[1]["remaining_seconds"]
+
+
+def test_city_geocoding_rejects_region_first_and_preserves_address_geocoding(app, monkeypatch):
+    # Synthetic API envelopes around the observed wrong centre and UN city reference.
+    evidence = json.loads((ROOT / "tests/fixtures/zhytomyr_observed_rejection.json").read_text())
+    region = {**evidence["search_center"], "addresstype": "state", "type": "administrative",
+              "display_name": "Zhytomyr Oblast, Ukraine"}
+    city = {**evidence["city_reference"], "addresstype": "city", "type": "administrative",
+            "display_name": "Zhytomyr, Ukraine"}
+    calls = []
+    def response(request, **kwargs):
+        calls.append(parse_qs(urlparse(request.full_url).query))
+        return io.BytesIO(json.dumps([region, city]).encode())
+    monkeypatch.setattr(app.urllib.request, "urlopen", response)
+    app.geocode_location.clear()
+    try:
+        for query in ["Zhytomyr", "Житомир, Ukraine"]:
+            actual = app.geocode_location(query, feature_type="city")
+            assert actual["lat"] == city["lat"] and actual["lon"] == city["lon"]
+            assert actual["resolution_type"] == "city"
+        assert all(c["featureType"] == ["city"] and c["limit"] == ["5"] for c in calls)
+        ordinary = app.geocode_location("An existing project address")
+        assert ordinary["lat"] == region["lat"]  # Ordinary address resolution unchanged.
+        assert "featureType" not in calls[-1] and calls[-1]["limit"] == ["1"]
+    finally:
+        app.geocode_location.clear()
+
+
+@pytest.mark.parametrize("rows", [[], [
+    {"lat": "50.9080532", "lon": "28.3867504", "addresstype": "state", "type": "administrative"}
+]])
+def test_city_geocoding_never_falls_back_to_region(app, monkeypatch, rows):
+    monkeypatch.setattr(app.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(json.dumps(rows).encode()))
+    app.geocode_location.clear()
+    try:
+        with pytest.raises(ValueError, match="No city-level location"):
+            app.geocode_location("Zhytomyr", feature_type="city")
+    finally:
+        app.geocode_location.clear()
+
+
+@pytest.mark.parametrize("search_name", ["search_large_retail_destinations", "search_retail_anchors"])
+def test_observed_unnamed_mall_is_kept_honestly_only_inside_resolved_area(app, monkeypatch, search_name):
+    evidence = json.loads((ROOT / "tests/fixtures/zhytomyr_observed_rejection.json").read_text())
+    # Reconstruct only the public fields present in the real diagnostic.
+    row = {k: evidence[k] for k in ["name", "lat", "lon", "osm_type", "osm_id", "category", "type"]}
+    monkeypatch.setattr(app.urllib.request, "urlopen", lambda *a, **kw: io.BytesIO(json.dumps([row]).encode()))
+    resolved = []
+    center = dict(evidence["search_center"])
+    def geocode(query, **kwargs):
+        resolved.append(kwargs)
+        return center
+    monkeypatch.setattr(app, "geocode_location", geocode)
+    search = getattr(app, search_name)
+    kwargs = {"include_overpass": False} if search_name == "search_retail_anchors" else {}
+    old_area = search("Zhytomyr", **kwargs)
+    assert len(old_area) == 1
+    assert old_area[0]["name"] == "Unnamed mapped mall (OSM way/1429557871)"
+    assert app.classify_object(old_area[0])[0] == "candidate"
+    center = dict(evidence["city_reference"])
+    correct_area = search("Zhytomyr", **kwargs)
+    assert correct_area == []  # The observed object is not in Zhytomyr city's radius.
+    assert all(r == {"feature_type": "city"} for r in resolved)
+    assert app.distance_km(center["lat"], center["lon"], float(row["lat"]), float(row["lon"])) > 70
+
+
+def test_explicit_unnamed_labels_do_not_merge_distinct_osm_venues(app):
+    def venue(ident):
+        return {"name": app.mapped_venue_name("", "mall", "way", ident),
+                "lat": 50.25, "lon": 28.66, "kind": "mall", "osm_type": "way", "osm_id": ident}
+    assert not app.same_retail_destination(venue(1), venue(2))
+    assert app.mapped_venue_name("", "retail", "way", 1) == ""
+    assert app.mapped_venue_name("", "mall", None, None) == ""
