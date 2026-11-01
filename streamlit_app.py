@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from map_view import render_map
-from golden_context import load_adaptive_tile, map_context
+from golden_context import ScreeningBudgetExceeded, load_adaptive_tile, map_context
 from cloud_storage import CloudError, load_config as load_cloud_config
 from cloud_workspace import render_cloud_workspace, save_cloud_library
 from ui_theme import (
@@ -69,7 +69,7 @@ def screening_response(request, timeout, pool):
         remaining = budget[pool]
         if remaining <= 0:
             budget["limited"].add(pool)
-            raise TimeoutError(f"Screening {pool} time budget exhausted")
+            raise ScreeningBudgetExceeded(f"Screening {pool} time budget exhausted")
         timeout = min(timeout, remaining)
     started = time.monotonic()
     try:
@@ -106,6 +106,16 @@ BASE_ECON_STATE = {
 }
 
 
+def record_discovery_request(query, count=None, error=None):
+    """Keep empty geocoder responses distinguishable from failed requests."""
+    budget = _SCREENING_NETWORK.get()
+    if budget is not None:
+        budget.setdefault("discovery_requests", []).append({
+            "query": query, "returned_objects": count,
+            "error": str(error) if error is not None else None,
+        })
+
+
 def run_overpass_query(query):
     """Run an Overpass query with multiple endpoints and both POST/GET fallbacks."""
     encoded = urllib.parse.urlencode({"data": query})
@@ -114,47 +124,53 @@ def run_overpass_query(query):
 
     screening = _SCREENING_NETWORK.get() is not None
     endpoints = ([OVERPASS_URLS[2]] + OVERPASS_URLS[:2] + OVERPASS_URLS[3:]) if screening else OVERPASS_URLS
-    for endpoint in endpoints:
-        # POST is preferred, but some public mirrors/cloud egress paths intermittently
-        # reject POST requests. Fall back to GET before moving to the next mirror.
-        for method in (("GET", "POST") if screening else ("POST", "GET")):
-            try:
-                if method == "POST":
-                    url = endpoint
-                    req = urllib.request.Request(
-                        url,
-                        data=data,
-                        headers={
-                            "User-Agent": USER_AGENT,
-                            "Accept": "application/json",
-                            "Content-Type": "application/x-www-form-urlencoded",
-                        },
-                        method="POST",
-                    )
-                else:
-                    url = f"{endpoint}?{encoded}"
-                    req = urllib.request.Request(
-                        url,
-                        headers={
-                            "User-Agent": USER_AGENT,
-                            "Accept": "application/json",
-                        },
-                        method="GET",
-                    )
+    # Screening must try another provider before retrying the same slow host.
+    # Reserve opportunities for three mirrors within the shared 30-second budget.
+    attempts = ([(endpoint, method) for method in ("GET", "POST") for endpoint in endpoints]
+                if screening else
+                [(endpoint, method) for endpoint in endpoints for method in ("POST", "GET")])
+    for endpoint, method in attempts:
+        try:
+            if method == "POST":
+                url = endpoint
+                req = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "application/json",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    method="POST",
+                )
+            else:
+                url = f"{endpoint}?{encoded}"
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "application/json",
+                    },
+                    method="GET",
+                )
 
-                with screening_response(req, timeout=20 if screening else 10, pool="overpass") as response:
-                    payload = json.loads(response.read().decode("utf-8"))
+            with screening_response(req, timeout=10, pool="overpass") as response:
+                payload = json.loads(response.read().decode("utf-8"))
 
-                if isinstance(payload, dict) and "elements" in payload and not payload.get("remark"):
-                    return payload
-                errors.append(f"{endpoint} {method}: invalid response")
-            except Exception as exc:
-                errors.append(f"{endpoint} {method}: {exc}")
+            if isinstance(payload, dict) and isinstance(payload.get("elements"), list) and not payload.get("remark"):
+                return payload
+            detail = payload.get("remark") if isinstance(payload, dict) else None
+            errors.append(f"{endpoint} {method}: {detail or 'invalid response'}")
+        except ScreeningBudgetExceeded as exc:
+            errors.append(str(exc))
+            break
+        except Exception as exc:
+            errors.append(f"{endpoint} {method}: {exc}")
 
     budget = _SCREENING_NETWORK.get()
     if budget is not None:
         budget["limited"].add("overpass")
-    raise RuntimeError("All Overpass endpoints failed. " + " | ".join(errors))
+    raise RuntimeError("Overpass query failed. " + " | ".join(errors))
 
 
 @st.cache_data(ttl=3600)
@@ -1417,7 +1433,11 @@ def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True)
         try:
             with urllib.request.urlopen(req, timeout=12) as response:
                 data = json.loads(response.read().decode("utf-8"))
-        except Exception:
+            if not isinstance(data, list):
+                raise ValueError("Nominatim returned no results list")
+            record_discovery_request(query_text, count=len(data))
+        except Exception as exc:
+            record_discovery_request(query_text, error=exc)
             continue
 
         for item in data:
@@ -1535,7 +1555,11 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
         try:
             with urllib.request.urlopen(req, timeout=15) as response:
                 rows = json.loads(response.read().decode("utf-8"))
-        except Exception:
+            if not isinstance(rows, list):
+                raise ValueError("Nominatim returned no results list")
+            record_discovery_request(query_text, count=len(rows))
+        except Exception as exc:
+            record_discovery_request(query_text, error=exc)
             continue
 
         for item in rows:
@@ -1652,7 +1676,7 @@ def fetch_golden_context(lat, lon, candidates=()):
                 raise ValueError("Map API returned no usable surrounding-map objects")
             return rows
         except Exception as fallback_error:
-            raise RuntimeError(f"Overpass unavailable or empty; {fallback_error}") from exc
+            raise RuntimeError(f"Overpass context failed: {exc}. Map API fallback failed: {fallback_error}") from exc
 
 
 def build_golden_spot_candidates(city_query, max_results=5):
@@ -1665,6 +1689,7 @@ def build_golden_spot_candidates(city_query, max_results=5):
         if meta is not None:
             meta = dict(meta)
             meta["enrichment_limited"] = bool(budget["limited"])
+            meta["discovery_requests"] = budget.get("discovery_requests", [])
         return results, meta
     finally:
         _SCREENING_NETWORK.reset(token)
@@ -1678,11 +1703,13 @@ def _build_golden_spot_candidates(city_query, max_results=5):
     lat, lon = geocoded["lat"], geocoded["lon"]
     try:
         large = search_large_retail_destinations(city_query)
-    except Exception:
+    except Exception as exc:
+        record_discovery_request("Large-retail discovery", error=exc)
         large = []
     try:
         broad = search_retail_anchors(city_query, include_overpass=False)
-    except Exception:
+    except Exception as exc:
+        record_discovery_request("Broad retail discovery", error=exc)
         broad = []
     initial_candidates = [row for row in large + broad if classify_object(row)[0] == "candidate"]
     context_error = None
@@ -1747,6 +1774,14 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         "context_object_count": len(context),
         "ranking_available": context_available and bool(ranked),
         "context_error": context_error,
+        "discovery_summary": {
+            "retained_search_objects": len(large) + len(broad),
+            "eligible_before_context": len(initial_candidates),
+            "ineligible_objects": [
+                {"name": row.get("name"), "reason": classify_object(row)[1]}
+                for row in large + broad if classify_object(row)[0] != "candidate"
+            ],
+        },
         "context_source": next((r.get("discovery_source") for r in context if r.get("discovery_source")),
                                "OpenStreetMap / Overpass" if context_available else "Unavailable"),
     })
@@ -2438,16 +2473,25 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         # Do not revive an old session's alphabetical shortlist after an upgrade.
         if not gs_context_ready:
             gs_results = []
-        gs_status = "Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending"
-        st.success(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
+        gs_has_candidates = bool(gs_meta.get("candidate_sites"))
+        gs_status = ("Jumbo screening complete" if gs_context_ready else "Candidate discovery complete · ranking pending") if gs_has_candidates else "No eligible candidate sites returned"
+        (st.success if gs_has_candidates else st.info)(f"{gs_status} · {gs_meta.get('query', '')} · {len(gs_meta.get('candidate_sites', []))} candidate sites")
         st.caption(f"Search centre: {gs_meta.get('display_name', gs_city)} · Completed: {gs_meta.get('completed_at', '')}")
-        if not gs_context_ready:
+        if not gs_has_candidates:
+            st.warning("No eligible candidate sites were returned by this search. This does not establish that suitable premises are absent. Discovery may be incomplete, or returned objects may lack eligible shopping-destination tags. No top-five ranking is available.")
+            if not gs_context_ready:
+                st.caption("Surrounding map data is also unavailable. Without candidate locations, the local map fallback cannot run. Check the diagnostics for the failed stage.")
+        elif not gs_context_ready:
             st.warning("Surrounding map data is incomplete. Traffic, access and parking remain unknown. No top-five ranking is available; all discovered candidates are listed alphabetically for further investigation. Retry the search to complete the missing data.")
         if gs_context_ready:
             st.caption(f"Surroundings source: {gs_meta.get('context_source', 'OpenStreetMap')} · mapped infrastructure, not measured footfall")
         elif gs_meta.get("context_error"):
             with st.expander("Surroundings data diagnostics"):
                 st.write(gs_meta["context_error"])
+        if gs_meta.get("discovery_summary") or gs_meta.get("discovery_requests"):
+            with st.expander("Candidate discovery diagnostics"):
+                st.json({"summary": gs_meta.get("discovery_summary"),
+                         "requests": gs_meta.get("discovery_requests", [])})
         st.caption("Evidence score: venue type 40 + shopping / family traffic 20 + road / transit access 25 + nearby parking 15. These are screening weights, not a sales forecast. Missing factors remain unknown. City-centre distance does not penalise destination malls.")
         gs_counts = st.columns(3)
         gs_counts[0].metric("Candidate sites", len(gs_meta.get("candidate_sites", [])))

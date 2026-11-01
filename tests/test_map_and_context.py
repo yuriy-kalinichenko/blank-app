@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from map_view import map_html
-from golden_context import context_tiles, map_context
+from golden_context import ScreeningBudgetExceeded, context_tiles, map_context
 
 
 def test_map_preserves_positions_without_executing_provider_labels():
@@ -45,7 +45,7 @@ def test_incomplete_map_tiles_cannot_be_used_as_complete_context():
     def load(_):
         nonlocal count
         count+=1
-        if count==2:raise TimeoutError('budget exhausted')
+        if count==2:raise ScreeningBudgetExceeded('budget exhausted')
         return [{'type':'node','id':1,'lat':41.328,'lon':19.818,'tags':{'amenity':'parking'}}]
     with pytest.raises(RuntimeError,match='coverage incomplete'):
         map_context([{'lat':41.328,'lon':19.818}],load)
@@ -62,3 +62,29 @@ def test_overpass_failure_uses_shared_map_coverage(monkeypatch):
     rows=ns['fetch_golden_context'](41.328,19.818,[{'lat':41.328,'lon':19.818}])
     assert len(rows)==1 and rows[0]['amenity']=='parking'
     assert rows[0]['discovery_source'].startswith('OpenStreetMap Map API')
+
+
+def test_transient_tile_timeout_allows_other_tiles_to_cache_but_blocks_ranking():
+    sites = [{'lat': 50.25, 'lon': 28.66}]
+    successful = {}
+    calls = []
+    first_tile = context_tiles(sites)[0]
+
+    def load(bbox):
+        if bbox in successful:
+            return successful[bbox]
+        calls.append(bbox)
+        if len(calls) == 1:
+            raise TimeoutError('temporary socket timeout')
+        successful[bbox] = [{'type': 'node', 'id': 1, 'lat': 50.25, 'lon': 28.66,
+                             'tags': {'amenity': 'parking'}}]
+        return successful[bbox]
+
+    with pytest.raises(RuntimeError, match='coverage incomplete'):
+        map_context(sites, load)
+    assert len(calls) == len(context_tiles(sites))
+    assert len(successful) == len(calls) - 1
+    rows = map_context(sites, load)
+    assert len(rows) == 1
+    assert calls[-1] == first_tile  # Retry fetches only the missing tile.
+    assert len(calls) == len(context_tiles(sites)) + 1

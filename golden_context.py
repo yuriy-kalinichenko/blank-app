@@ -4,6 +4,10 @@ from urllib.error import HTTPError
 
 from golden_spot import TAG_KEYS, distance
 
+class ScreeningBudgetExceeded(TimeoutError):
+    """No more network time remains for this screening provider pool."""
+
+
 CONTEXT_RADIUS_KM = 2.2
 TILE_DEGREES = 0.025
 
@@ -80,7 +84,9 @@ def map_context(candidates, load_tile):
                 merged[(element.get('type'), element.get('id'))] = element
         except Exception as exc:
             errors.append(str(exc))
-            if isinstance(exc, TimeoutError) or getattr(exc, 'code', None) == 429:
+            # A single request timeout need not consume the whole screening budget.
+            # Continue caching other tiles, but never return partial coverage.
+            if isinstance(exc, ScreeningBudgetExceeded) or getattr(exc, 'code', None) == 429:
                 break
     if errors:
         raise RuntimeError(f'Surrounding-map coverage incomplete: {len(tiles)} tiles required; '

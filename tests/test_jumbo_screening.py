@@ -155,3 +155,21 @@ def test_legacy_empty_context_cannot_restore_ranked_ui(app, city, monkeypatch):
     assert len(at.exception) == 0
     assert any('No top-five ranking is available' in x.value for x in at.warning)
     assert not any('Rank' in d.value.columns for d in at.dataframe)
+
+
+def test_empty_discovery_ui_does_not_claim_success_or_alphabetical_candidates(app, city, monkeypatch):
+    from streamlit.testing.v1 import AppTest
+    setup_search(app, city, monkeypatch, [], [])
+    def unavailable(*args):
+        raise RuntimeError("Overpass unavailable or empty; No eligible premises available for surrounding-map coverage")
+    monkeypatch.setattr(app, "fetch_golden_context", unavailable)
+    _, meta = app.build_golden_spot_candidates("Test city")
+    at = AppTest.from_file(Path(__file__).resolve().parents[1] / 'streamlit_app.py')
+    at.session_state['golden_spot_meta'] = meta
+    at.run(timeout=15)
+    assert len(at.exception) == 0
+    assert any('No eligible candidate sites returned' in x.value for x in at.info)
+    assert any('does not establish that suitable premises are absent' in x.value for x in at.warning)
+    assert not any('listed alphabetically' in x.value for x in at.warning)
+    assert not any('discovery complete' in x.value for x in at.success)
+    assert not any(b.label == 'Create project from this spot' for b in at.button)
