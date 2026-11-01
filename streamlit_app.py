@@ -116,6 +116,43 @@ def record_discovery_request(query, count=None, error=None):
         })
 
 
+def record_discovery_rejection(query, item, reason, lat, lon, distance=None):
+    """Session-only, bounded public POI evidence; never retain the raw payload."""
+    budget = _SCREENING_NETWORK.get()
+    if budget is None:
+        return
+    budget["discovery_rejection_count"] = budget.get("discovery_rejection_count", 0) + 1
+    rows = budget.setdefault("discovery_rejections", [])
+    if len(rows) >= 20:
+        return
+    item = item if isinstance(item, dict) else {}
+    names = item.get("namedetails")
+    names = names if isinstance(names, dict) else {}
+    def text(value):
+        return str(value)[:160] if value is not None else None
+    rows.append({
+        "query": text(query), "reason": reason,
+        "name": text(names.get("name:en") or names.get("name") or item.get("name")),
+        "alternative_names": {text(k): text(v) for k, v in list(names.items())[:5]
+                              if k == "name" or k.startswith("name:")},
+        "lat": text(item.get("lat")), "lon": text(item.get("lon")),
+        "osm_type": text(item.get("osm_type")), "osm_id": text(item.get("osm_id")),
+        "category": text(item.get("category") or item.get("class")), "type": text(item.get("type")),
+        "search_center": {"lat": lat, "lon": lon},
+        "distance_km": round(distance, 3) if distance is not None and math.isfinite(distance) else None,
+    })
+
+
+def record_discovery_stage(stage):
+    budget = _SCREENING_NETWORK.get()
+    if budget is not None:
+        budget.setdefault("discovery_stages", []).append({
+            "stage": stage,
+            "remaining_seconds": {pool: round(budget[pool], 3) for pool in ("overpass", "map")},
+            "limited_pools": sorted(budget["limited"]),
+        })
+
+
 def run_overpass_query(query):
     """Run an Overpass query with multiple endpoints and both POST/GET fallbacks."""
     encoded = urllib.parse.urlencode({"data": query})
@@ -1445,9 +1482,12 @@ def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True)
                 a_lat = float(item["lat"])
                 a_lon = float(item["lon"])
             except Exception:
+                record_discovery_rejection(query_text, item, "invalid_coordinates", city_lat, city_lon)
                 continue
 
-            if distance_km(city_lat, city_lon, a_lat, a_lon) > 20:
+            d_city = distance_km(city_lat, city_lon, a_lat, a_lon)
+            if d_city > 20:
+                record_discovery_rejection(query_text, item, "outside_search_radius", city_lat, city_lon, d_city)
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1458,10 +1498,12 @@ def search_retail_anchors(city_query, limit_per_query=10, include_overpass=True)
                 or item.get("name") or ""
             )
             if not name or name.casefold() in generic_names:
+                record_discovery_rejection(query_text, item, "missing_name" if not name else "generic_name", city_lat, city_lon, d_city)
                 continue
 
             key = (round(a_lat, 3), round(a_lon, 3), name.casefold())
             if key in seen:
+                record_discovery_rejection(query_text, item, "duplicate_destination", city_lat, city_lon, d_city)
                 continue
             seen.add(key)
             anchors.append(
@@ -1567,10 +1609,12 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
                 d_lat = float(item["lat"])
                 d_lon = float(item["lon"])
             except Exception:
+                record_discovery_rejection(query_text, item, "invalid_coordinates", city_lat, city_lon)
                 continue
 
             d_city = distance_km(city_lat, city_lon, d_lat, d_lon)
             if d_city is None or d_city > GOLDEN_SEARCH_RADIUS_KM:
+                record_discovery_rejection(query_text, item, "invalid_coordinates" if d_city is None else "outside_search_radius", city_lat, city_lon, d_city)
                 continue
 
             namedetails = item.get("namedetails") or {}
@@ -1582,6 +1626,7 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
                 or ""
             )
             if not name or name.casefold() in generic_names:
+                record_discovery_rejection(query_text, item, "missing_name" if not name else "generic_name", city_lat, city_lon, d_city)
                 continue
 
             raw_kind = (item.get("type") or item.get("class") or "unknown").lower()
@@ -1606,6 +1651,8 @@ def search_large_retail_destinations(city_query, limit_per_query=40):
             }
             if not any(same_retail_destination(destination, old) for old in destinations):
                 destinations.append(destination)
+            else:
+                record_discovery_rejection(query_text, item, "duplicate_destination", city_lat, city_lon, d_city)
 
     return destinations[:80]
 
@@ -1726,6 +1773,9 @@ def build_golden_spot_candidates(city_query, max_results=5):
             meta = dict(meta)
             meta["enrichment_limited"] = bool(budget["limited"])
             meta["discovery_requests"] = budget.get("discovery_requests", [])
+            meta["discovery_rejections"] = budget.get("discovery_rejections", [])
+            meta["discovery_rejection_count"] = budget.get("discovery_rejection_count", 0)
+            meta["discovery_stages"] = budget.get("discovery_stages", [])
         return results, meta
     finally:
         _SCREENING_NETWORK.reset(token)
@@ -1748,6 +1798,7 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         record_discovery_request("Broad retail discovery", error=exc)
         broad = []
     initial_candidates = [row for row in large + broad if classify_object(row)[0] == "candidate"]
+    record_discovery_stage("after_nominatim_discovery")
     if not initial_candidates:
         # Nominatim category searches are selective, not an inventory. A narrow
         # premises query can succeed even when the full surroundings query fails.
@@ -1759,6 +1810,7 @@ def _build_golden_spot_candidates(city_query, max_results=5):
             initial_candidates = [row for row in premises if classify_object(row)[0] == "candidate"]
         except Exception as exc:
             record_discovery_request("Overpass premises discovery", error=exc)
+    record_discovery_stage("before_surroundings")
     context_error = None
     try:
         context = fetch_golden_context(lat, lon, initial_candidates)
@@ -1766,6 +1818,7 @@ def _build_golden_spot_candidates(city_query, max_results=5):
     except Exception as exc:
         context, context_available = [], False
         context_error = str(exc)
+    record_discovery_stage("after_surroundings")
 
     inventory = []
     by_id = {}
@@ -2538,7 +2591,12 @@ with st.expander("🌟 Golden Spot workspace", expanded=False):
         if gs_meta.get("discovery_summary") or gs_meta.get("discovery_requests"):
             with st.expander("Candidate discovery diagnostics"):
                 st.json({"summary": gs_meta.get("discovery_summary"),
-                         "requests": gs_meta.get("discovery_requests", [])})
+                         "requests": gs_meta.get("discovery_requests", []),
+                         "rejected_objects": gs_meta.get("discovery_rejections", []),
+                         "rejection_details_recorded": "discovery_rejections" in gs_meta,
+                         "rejected_count": gs_meta.get("discovery_rejection_count"),
+                         "rejected_sample_limit": 20,
+                         "provider_stages": gs_meta.get("discovery_stages", [])})
         st.caption("Evidence score: venue type 40 + shopping / family traffic 20 + road / transit access 25 + nearby parking 15. These are screening weights, not a sales forecast. Missing factors remain unknown. City-centre distance does not penalise destination malls.")
         gs_counts = st.columns(3)
         gs_counts[0].metric("Candidate sites", len(gs_meta.get("candidate_sites", [])))

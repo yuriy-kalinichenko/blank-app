@@ -342,3 +342,80 @@ def test_focused_discovery_failure_does_not_skip_full_context_discovery(app, cit
     shortlist, meta = app.build_golden_spot_candidates("Test city")
     assert shortlist[0]["name"] == "Synthetic Context Mall"
     assert meta["discovery_requests"][-1]["error"] == "focused discovery unavailable"
+
+
+@pytest.mark.parametrize("search_name", ["search_large_retail_destinations", "search_retail_anchors"])
+def test_discovery_rejections_explain_filters_without_changing_results(app, city, monkeypatch, search_name):
+    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    good = {"name": "Synthetic Mall", "lat": str(city["lat"]), "lon": str(city["lon"]),
+            "type": "mall", "category": "shop", "osm_type": "way", "osm_id": 123}
+    rows = [
+        {**good, "lat": "invalid", "name": "Bad coordinates"},
+        {**good, "lat": "45", "name": "Distant Mall"},
+        {**good, "name": "", "namedetails": {"name:uk": "Тестовий центр"}},
+        {**good, "name": "shopping mall"},
+        good, good,
+    ]
+    calls = []
+    def response(*args, **kwargs):
+        calls.append(1)
+        return io.BytesIO(json.dumps(rows if len(calls) == 1 else []).encode())
+    monkeypatch.setattr(app.urllib.request, "urlopen", response)
+    budget = {"overpass": 30., "map": 90., "limited": set()}
+    token = app._SCREENING_NETWORK.set(budget)
+    try:
+        search = getattr(app, search_name)
+        found = search("Test city", **({"include_overpass": False} if search_name == "search_retail_anchors" else {}))
+    finally:
+        app._SCREENING_NETWORK.reset(token)
+    assert [r["name"] for r in found] == ["Synthetic Mall"]
+    rejected = budget["discovery_rejections"]
+    assert [r["reason"] for r in rejected] == ["invalid_coordinates", "outside_search_radius",
+                                             "missing_name", "generic_name", "duplicate_destination"]
+    assert rejected[0]["lat"] == "invalid" and rejected[0]["distance_km"] is None
+    assert rejected[1]["distance_km"] > 20
+    assert rejected[2]["alternative_names"] == {"name:uk": "Тестовий центр"}
+    assert rejected[-1]["distance_km"] == 0
+    assert rejected[-1]["search_center"] == {"lat": city["lat"], "lon": city["lon"]}
+    assert rejected[-1]["osm_id"] == "123"
+    assert budget["overpass"] == 30 and budget["map"] == 90
+
+
+def test_rejection_diagnostics_are_bounded_and_exclude_unselected_payload_fields(app):
+    budget = {"overpass": 30., "map": 90., "limited": set()}
+    token = app._SCREENING_NETWORK.set(budget)
+    try:
+        for i in range(25):
+            app.record_discovery_rejection("q", {"name": "x" * 500, "lat": "50", "lon": "28",
+                "extratags": {"private_test_field": "NOT_RETAINED"},
+                "email": "NOT_RETAINED", "display_name": "NOT_RETAINED"}, "generic_name", 50., 28., 0.)
+    finally:
+        app._SCREENING_NETWORK.reset(token)
+    assert len(budget["discovery_rejections"]) == 20
+    assert budget["discovery_rejection_count"] == 25
+    assert len(budget["discovery_rejections"][0]["name"]) == 160
+    assert "NOT_RETAINED" not in json.dumps(budget["discovery_rejections"])
+    assert app._SCREENING_NETWORK.get() is None
+
+
+def test_provider_stages_show_exhaustion_without_changing_recovery(app, city, monkeypatch):
+    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
+    monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
+    def premises(*args):
+        budget = app._SCREENING_NETWORK.get()
+        budget["overpass"] = 0.
+        budget["limited"].add("overpass")
+        raise TimeoutError("budget exhausted")
+    monkeypatch.setattr(app, "fetch_golden_premises", premises)
+    def context(*args):
+        raise TimeoutError("no context")
+    monkeypatch.setattr(app, "fetch_golden_context", context)
+    shortlist, meta = app.build_golden_spot_candidates("Test city")
+    assert shortlist == [] and not meta["ranking_available"]
+    stages = meta["discovery_stages"]
+    assert [s["stage"] for s in stages] == ["after_nominatim_discovery", "before_surroundings", "after_surroundings"]
+    assert stages[0]["remaining_seconds"] == {"overpass": 30., "map": 90.}
+    assert stages[1]["remaining_seconds"] == {"overpass": 0., "map": 90.}
+    assert stages[1]["limited_pools"] == ["overpass"]
+    assert stages[2]["remaining_seconds"] == stages[1]["remaining_seconds"]
