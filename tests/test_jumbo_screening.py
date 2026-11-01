@@ -33,6 +33,7 @@ def test_classification_is_based_on_premises_evidence(row, role):
 
 
 def setup_search(app, city, monkeypatch, destinations, context):
+    monkeypatch.setattr(app, "fetch_golden_premises", lambda *args: [])
     monkeypatch.setattr(app, "geocode_location", lambda _: city)
     monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: destinations)
     monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])

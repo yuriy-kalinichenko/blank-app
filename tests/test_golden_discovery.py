@@ -244,7 +244,7 @@ def test_no_eligible_discovery_reproduces_exact_fallback_branch(app, monkeypatch
     assert "No eligible premises available for surrounding-map coverage" in meta["context_error"]
     assert tiles == []  # The fallback makes no requests when it has no premises.
     assert meta["discovery_summary"]["eligible_before_context"] == 0
-    requests = meta["discovery_requests"]
+    requests = [r for r in meta["discovery_requests"] if r["query"] != "Overpass premises discovery"]
     assert len(requests) == 8
     if mode == "failed":
         assert all(r["error"] == "discovery provider timed out" for r in requests)
@@ -255,3 +255,90 @@ def test_no_eligible_discovery_reproduces_exact_fallback_branch(app, monkeypatch
     if mode == "ineligible":
         assert meta["discovery_summary"]["ineligible_objects"]
         assert meta["traffic_generators"]
+
+
+@pytest.fixture
+def zhytomyr_reference():
+    return json.loads((ROOT / "tests/fixtures/zhytomyr_global_reference.json").read_text())
+
+
+def test_real_zhytomyr_reference_is_not_excluded_by_geography_or_unicode(app, zhytomyr_reference):
+    # Source-backed name/location; reference coordinates are NOT a live city geocode.
+    # A shop=mall tag is hypothetical here, since raw provider tags were inaccessible.
+    row = zhytomyr_reference
+    assert app.distance_km(50.25, 28.66, row["lat"], row["lon"]) < 3
+    assert app.classify_object({**row, "shop": "mall"})[0] == "candidate"
+    # The name alone must not invent a venue type when that tag is absent.
+    assert app.classify_object(row)[0] != "candidate"
+
+
+def test_focused_discovery_recovers_premises_without_inventing_context(app, monkeypatch):
+    # Entire provider payload is synthetic; this tests orchestration, not live OSM.
+    city = {"lat": 50.25, "lon": 28.66, "display_name": "Test city"}
+    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
+    monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
+    queries = []
+    def overpass(query):
+        queries.append(query)
+        if '["shop"~' in query:
+            return {"elements": [{"type": "way", "id": 123,
+                "center": {"lat": 50.26, "lon": 28.68},
+                "tags": {"name": "Synthetic Mall", "shop": "mall"}}]}
+        raise TimeoutError("full surroundings query unavailable")
+    monkeypatch.setattr(app, "run_overpass_query", overpass)
+    received = []
+    def map_fallback(candidates, loader):
+        received.extend(candidates)
+        raise TimeoutError("map service unavailable")
+    monkeypatch.setattr(app, "map_context", map_fallback)
+    shortlist, meta = app.build_golden_spot_candidates("Test city")
+    assert len(queries) == 2
+    assert '["amenity"' not in queries[0] and '["highway"' not in queries[0]
+    assert '[timeout:8]' in queries[0] and 'around:20000,' in queries[0]
+    assert received[0]["name"] == "Synthetic Mall"
+    assert [r["name"] for r in meta["candidate_sites"]] == ["Synthetic Mall"]
+    assert meta["discovery_summary"]["eligible_before_context"] == 1
+    assert shortlist == [] and not meta["ranking_available"]
+    assert meta["candidate_sites"][0]["components"]["Nearby parking"] is None
+
+
+def test_focused_discovery_preserves_classification_and_rejects_invalid_geometry(app, monkeypatch):
+    def way(ident, tags, center):
+        return {"type": "way", "id": ident, "tags": tags, "center": center}
+    point = {"lat": 50.25, "lon": 28.66}
+    elements = [way(1, {"name": "Mapped Mall", "shop": "mall"}, point),
+                way(2, {"name": "Inactive Mall", "shop": "mall", "disused": "yes"}, point),
+                way(3, {"name": "Tenant", "shop": "supermarket"}, point),
+                way(4, {"name": "Unknown location", "shop": "mall"}, {}),
+                way(5, {"name": "Invalid", "shop": "mall"}, {"lat": "nan", "lon": 28}),
+                way(6, {"name": "Distant", "shop": "mall"}, {"lat": 51, "lon": 28})]
+    monkeypatch.setattr(app, "run_overpass_query", lambda _: {"elements": elements})
+    rows = app.fetch_golden_premises(50.25, 28.66)
+    assert {r["osm_id"] for r in rows} == {1, 2, 3}
+    assert [r["osm_id"] for r in rows if app.classify_object(r)[0] == "candidate"] == [1]
+
+
+def test_focused_discovery_not_requested_when_geocoder_found_premises(app, city, monkeypatch):
+    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [{**city, "name": "Synthetic Mall", "kind": "mall"}])
+    monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
+    monkeypatch.setattr(app, "fetch_golden_context", lambda *args: [])
+    def unexpected(*args):
+        pytest.fail("Unnecessary focused discovery request")
+    monkeypatch.setattr(app, "fetch_golden_premises", unexpected)
+    app.build_golden_spot_candidates("Test city")
+
+
+def test_focused_discovery_failure_does_not_skip_full_context_discovery(app, city, monkeypatch):
+    monkeypatch.setattr(app, "geocode_location", lambda _: city)
+    monkeypatch.setattr(app, "search_large_retail_destinations", lambda _: [])
+    monkeypatch.setattr(app, "search_retail_anchors", lambda *a, **kw: [])
+    def fail(*args):
+        raise TimeoutError("focused discovery unavailable")
+    monkeypatch.setattr(app, "fetch_golden_premises", fail)
+    monkeypatch.setattr(app, "fetch_golden_context", lambda *args: [
+        {**city, "name": "Synthetic Context Mall", "shop": "mall"}])
+    shortlist, meta = app.build_golden_spot_candidates("Test city")
+    assert shortlist[0]["name"] == "Synthetic Context Mall"
+    assert meta["discovery_requests"][-1]["error"] == "focused discovery unavailable"

@@ -24,7 +24,7 @@ from ui_theme import (
 )
 
 from golden_spot import (
-    MODEL_VERSION, TAG_KEYS, category as golden_category, classify_object,
+    MODEL_VERSION, TAG_KEYS, VENUE_TYPES, category as golden_category, classify_object,
     identity as golden_identity, score_candidate, rank_candidates,
 )
 
@@ -107,7 +107,7 @@ BASE_ECON_STATE = {
 
 
 def record_discovery_request(query, count=None, error=None):
-    """Keep empty geocoder responses distinguishable from failed requests."""
+    """Keep empty discovery responses distinguishable from failed requests."""
     budget = _SCREENING_NETWORK.get()
     if budget is not None:
         budget.setdefault("discovery_requests", []).append({
@@ -1629,6 +1629,42 @@ def fetch_golden_map_tile(bbox):
     return load_adaptive_tile(bbox, request_golden_map_tile)
 
 
+def fetch_golden_premises(lat, lon):
+    """Discover typed premises without requiring the larger surroundings query."""
+    venue_pattern = "|".join(sorted(VENUE_TYPES))
+    query = f"""
+    [out:json][timeout:8];
+    nwr(around:{GOLDEN_SEARCH_RADIUS_KM * 1000},{lat},{lon})["shop"~"^({venue_pattern})$"];
+    out center tags;
+    """
+    payload = run_overpass_query(query)
+    elements = payload.get("elements")
+    if not isinstance(elements, list):
+        raise ValueError("Overpass returned no premises elements list")
+    rows = []
+    for element in elements:
+        tags = element.get("tags") or {}
+        point = element if element.get("lat") is not None else element.get("center", {})
+        try:
+            a_lat, a_lon = float(point["lat"]), float(point["lon"])
+            if not math.isfinite(a_lat) or not math.isfinite(a_lon):
+                continue
+            if not (-90 <= a_lat <= 90 and -180 <= a_lon <= 180):
+                continue
+            if distance_km(lat, lon, a_lat, a_lon) > GOLDEN_SEARCH_RADIUS_KM:
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        rows.append({
+            "name": tags.get("name:en") or tags.get("name") or tags.get("brand") or "Unnamed",
+            "lat": a_lat, "lon": a_lon, "tags": tags,
+            **{key: tags[key] for key in TAG_KEYS if key in tags},
+            "osm_type": element.get("type"), "osm_id": element.get("id"),
+            "discovery_source": "OpenStreetMap / Overpass · premises discovery",
+        })
+    return rows
+
+
 def fetch_golden_context(lat, lon, candidates=()):
     """One city-wide snapshot gives every candidate the same evidence coverage."""
     radius = (GOLDEN_SEARCH_RADIUS_KM + 2.2) * 1000
@@ -1712,6 +1748,17 @@ def _build_golden_spot_candidates(city_query, max_results=5):
         record_discovery_request("Broad retail discovery", error=exc)
         broad = []
     initial_candidates = [row for row in large + broad if classify_object(row)[0] == "candidate"]
+    if not initial_candidates:
+        # Nominatim category searches are selective, not an inventory. A narrow
+        # premises query can succeed even when the full surroundings query fails.
+        # Keep the same shared network budget and the same eligibility policy.
+        try:
+            premises = fetch_golden_premises(lat, lon)
+            record_discovery_request("Overpass premises discovery", count=len(premises))
+            broad += premises
+            initial_candidates = [row for row in premises if classify_object(row)[0] == "candidate"]
+        except Exception as exc:
+            record_discovery_request("Overpass premises discovery", error=exc)
     context_error = None
     try:
         context = fetch_golden_context(lat, lon, initial_candidates)

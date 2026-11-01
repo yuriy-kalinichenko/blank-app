@@ -1,0 +1,14 @@
+{
+  "name": "ТРЦ Глобал",
+  "lat": 50.26714,
+  "lon": 28.68595,
+  "osm_type": "way",
+  "osm_id": 320178845,
+  "address": "Київська вулиця 77, Житомир",
+  "source_urls": [
+    "https://mapcarta.com/W320178845",
+    "https://maisteroriginal.com/en/object/shopping-center-global-ua-zhytomyr/"
+  ],
+  "retrieved_date": "2026-11-01",
+  "provenance": "Manually transcribed public search-index reference: Mapcarta labels this object a shopping center and supplies coordinates and OSM way identity. Maister's own project page corroborates Global UA as a shopping center in Zhytomyr. This is NOT a captured Nominatim or Overpass response. Current OSM tags could not be fetched; no current shop tag, vacancy, access, parking or scoring evidence is asserted. Used only to check geography, Unicode name handling and hypothetical mapped-mall eligibility."
+}
