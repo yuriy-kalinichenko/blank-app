@@ -78,6 +78,13 @@ The economics module uses explicit user assumptions for area, rent, CAPEX, sales
 
 Saved-project comparison uses only the assumptions stored in each project. The app does not create a hidden overall ranking.
 
+Portfolio amounts retain each project's saved currency; no implicit exchange-rate
+conversion is performed. EBITDA charts are separated and labelled by currency,
+with independent scales. When a portfolio mixes currencies, commercial priority
+uses positive EBITDA, payback and EBITDA margin, but excludes nominal sales
+density as a tie-breaker. With a single currency the existing density tie-breaker
+is retained. This screening order is not a common-currency investment valuation.
+
 ## Methodology safeguards
 
 - Real routing polygons are distinguished from fallback proxies.
