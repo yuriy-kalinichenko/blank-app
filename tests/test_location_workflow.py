@@ -142,6 +142,31 @@ def test_create_save_load_and_rename_project(app_test):
     assert at.text_input(key="project_next_action").value == "Verify lease"
 
 
+def test_json_import_keeps_existing_same_name_project(app_test):
+    at = app_test
+    name = "Karavan Mall, Kyiv - Base"
+    before = dict(at.session_state["project_library"][name])
+    payload = {
+        "projects": {
+            name: {
+                **before,
+                "location": "Imported alternative site",
+            }
+        }
+    }
+
+    at.file_uploader(key="project_import_library_file").upload(
+        "jumbo-backup.json",
+        json.dumps(payload).encode(),
+        "application/json",
+    ).run()
+    click(at, "Import selected file")
+
+    projects = at.session_state["project_library"]
+    assert projects[name] == before
+    assert projects[name + " (import 1)"]["location"] == "Imported alternative site"
+
+
 def test_access_score_is_unknown_when_parking_source_is_missing(app_test):
     at = app_test
     at.session_state["qa_retail_outage"] = True

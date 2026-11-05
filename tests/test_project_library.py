@@ -7,7 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from project_library import export_project_library, validate_project_library
+from project_library import (
+    export_project_library,
+    merge_project_libraries,
+    validate_project_library,
+)
 
 
 def test_project_library_round_trip_preserves_projects():
@@ -72,3 +76,38 @@ def test_invalid_stage_is_safely_normalized():
 
     assert imported["Test"]["stage"] == "Screening"
     assert imported["Test"]["schema_version"] == 2
+
+
+def test_import_merge_preserves_existing_name_collision():
+    existing = {
+        "Kyiv": {"location": "Existing site", "area": 4500.0},
+    }
+    imported = {
+        "Kyiv": {"location": "Imported site", "area": 3800.0},
+    }
+
+    merged, imported_names = merge_project_libraries(existing, imported)
+
+    assert merged["Kyiv"] == existing["Kyiv"]
+    assert merged["Kyiv (import 1)"] == imported["Kyiv"]
+    assert imported_names == ["Kyiv (import 1)"]
+    assert existing == {"Kyiv": {"location": "Existing site", "area": 4500.0}}
+    assert imported == {"Kyiv": {"location": "Imported site", "area": 3800.0}}
+
+
+def test_import_merge_skips_identical_project_and_uses_next_free_suffix():
+    existing = {
+        "Kyiv": {"location": "Same site"},
+        "Tirana": {"location": "Existing site"},
+        "Tirana (import 1)": {"location": "Older imported site"},
+    }
+    imported = {
+        "Kyiv": {"location": "Same site"},
+        "Tirana": {"location": "New imported site"},
+    }
+
+    merged, imported_names = merge_project_libraries(existing, imported)
+
+    assert list(merged) == ["Kyiv", "Tirana", "Tirana (import 1)", "Tirana (import 2)"]
+    assert merged["Tirana (import 2)"] == imported["Tirana"]
+    assert imported_names == ["Tirana (import 2)"]
