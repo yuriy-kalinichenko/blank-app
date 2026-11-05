@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 
 
@@ -72,6 +73,26 @@ def validate_project_library(payload):
     if not normalized:
         raise ValueError("No valid projects were found in the JSON file.")
     return normalized
+
+
+def merge_project_libraries(existing, imported):
+    """Merge a backup without overwriting an existing same-name project."""
+    merged = deepcopy(existing)
+    imported_names = []
+    for name, project in imported.items():
+        if name not in merged:
+            target = name
+        elif merged[name] == project:
+            continue
+        else:
+            suffix = 1
+            target = f"{name} (import {suffix})"
+            while target in merged:
+                suffix += 1
+                target = f"{name} (import {suffix})"
+        merged[target] = deepcopy(project)
+        imported_names.append(target)
+    return merged, imported_names
 
 
 def export_project_library(data, build_version, exported_at=None):

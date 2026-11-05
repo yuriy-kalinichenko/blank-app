@@ -39,7 +39,8 @@ For durable portability, the **Project library · backup & transfer** section ca
 
 - export all projects to a JSON backup;
 - import that backup on another computer or after an app restart;
-- merge imported projects into the current library;
+- merge imported projects into the current library without overwriting an existing
+  same-name project; a conflicting import is kept as a separate `(import N)` copy;
 - delete a selected project.
 
 The deployed app uses Supabase for authenticated, durable project storage. Open **Cloud projects** in the left sidebar, create a Jumbo app account, confirm your email, then sign in. This account is separate from your Supabase dashboard account. A fresh browser session requires sign-in again.

@@ -4,7 +4,11 @@ from copy import deepcopy
 import streamlit as st
 
 from cloud_storage import CloudClient, CloudError
-from project_library import export_project_library, validate_project_library
+from project_library import (
+    export_project_library,
+    merge_project_libraries,
+    validate_project_library,
+)
 
 
 def save_cloud_library(config, projects):
@@ -83,16 +87,7 @@ def render_cloud_workspace(config, build_version):
             st.download_button("Export guest projects", export_project_library(candidate, build_version),
                                file_name="jumbo_guest_projects.json", mime="application/json", key="cloud_guest_backup")
             if st.button("Copy guest projects to my account", key="cloud_copy_guest"):
-                merged = deepcopy(library)
-                # Preserve BOTH records if names collide; never overwrite cloud records implicitly.
-                for name, project in candidate.items():
-                    if merged.get(name) == project:
-                        continue
-                    target, suffix = name, 1
-                    while target in merged:
-                        target = f"{name} (import {suffix})"
-                        suffix += 1
-                    merged[target] = project
+                merged, _ = merge_project_libraries(library, candidate)
                 try:
                     save_cloud_library(config, merged)
                     st.session_state["project_library"] = merged

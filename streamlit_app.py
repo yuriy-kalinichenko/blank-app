@@ -31,6 +31,7 @@ from golden_spot import (
 from project_library import (
     default_project_library,
     export_project_library as serialize_project_library,
+    merge_project_libraries,
     validate_project_library,
 )
 
@@ -2313,15 +2314,18 @@ with st.container(key="project_workspace"):
                     uploaded_library.getvalue().decode("utf-8")
                 )
                 imported_projects = validate_project_library(imported_payload)
-                saved_projects.update(imported_projects)
+                saved_projects, imported_names = merge_project_libraries(
+                    saved_projects, imported_projects
+                )
                 st.session_state["project_library"] = saved_projects
                 try:
                     persist_saved_scenarios(saved_projects)
                 except OSError:
                     pass
                 st.session_state["_project_flash"] = (
-                    f"Imported {len(imported_projects)} project(s). "
-                    "Existing projects with the same name were updated."
+                    f"Imported {len(imported_names)} new project(s). "
+                    "Identical records were skipped; conflicting names were saved as separate "
+                    "'(import N)' copies."
                 )
                 st.rerun()
             except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
