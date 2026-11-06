@@ -1109,9 +1109,43 @@ def _parse_commercial_number(value):
         return None
 
 
+def _xlsx_percentage_style_ids(archive):
+    """Return cell style indexes whose number format displays a percentage."""
+    if "xl/styles.xml" not in archive.namelist():
+        return set()
+
+    root = ET.fromstring(archive.read("xl/styles.xml"))
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    percentage_format_ids = {9, 10}  # Built-in Excel formats: 0% and 0.00%.
+    for number_format in root.findall("m:numFmts/m:numFmt", ns):
+        code = number_format.attrib.get("formatCode", "")
+        # A quoted or escaped percent sign is literal text, not a scale marker.
+        active_code = re.sub(r'"[^"]*"', "", code)
+        active_code = re.sub(r"\\.", "", active_code)
+        if "%" in active_code:
+            try:
+                percentage_format_ids.add(int(number_format.attrib["numFmtId"]))
+            except (KeyError, ValueError):
+                continue
+
+    percentage_style_ids = set()
+    cell_formats = root.find("m:cellXfs", ns)
+    if cell_formats is None:
+        return percentage_style_ids
+    for style_id, cell_format in enumerate(cell_formats.findall("m:xf", ns)):
+        try:
+            number_format_id = int(cell_format.attrib.get("numFmtId", 0))
+        except ValueError:
+            continue
+        if number_format_id in percentage_format_ids:
+            percentage_style_ids.add(style_id)
+    return percentage_style_ids
+
+
 def _xlsx_first_sheet_rows(file_bytes):
     """Read values from the first XLSX worksheet using only the Python standard library."""
     with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+        percentage_style_ids = _xlsx_percentage_style_ids(archive)
         shared_strings = []
         if "xl/sharedStrings.xml" in archive.namelist():
             root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
@@ -1168,6 +1202,13 @@ def _xlsx_first_sheet_rows(file_bytes):
                     value = shared_strings[idx] if 0 <= idx < len(shared_strings) else ""
                 else:
                     value = value_node.text or ""
+                    if cell_type in (None, "n"):
+                        try:
+                            style_id = int(cell.attrib.get("s", 0))
+                            if style_id in percentage_style_ids:
+                                value = f"{float(value) * 100:.15g}"
+                        except (TypeError, ValueError):
+                            pass
                 values.append(value)
                 last_col = col_index or (last_col + 1)
             rows.append(values)
