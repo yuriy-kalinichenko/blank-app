@@ -76,6 +76,8 @@ In Supabase **Authentication → URL Configuration**, set the Site URL and allow
 
 The economics module uses explicit user assumptions for area, rent, CAPEX, sales, gross margin, payroll, utilities, logistics and other OPEX. It calculates annual rent, gross profit, EBITDA, sales density, occupancy cost, EBITDA margin and payback.
 
+Commercial XLSX upload respects Excel percentage cell formats: a margin displayed as `50%` is imported as 50 percentage points rather than the stored decimal `0.5`.
+
 Saved-project comparison uses only the assumptions stored in each project. The app does not create a hidden overall ranking.
 
 ## Methodology safeguards
