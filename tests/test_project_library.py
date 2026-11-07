@@ -2,6 +2,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -72,3 +74,44 @@ def test_invalid_stage_is_safely_normalized():
 
     assert imported["Test"]["stage"] == "Screening"
     assert imported["Test"]["schema_version"] == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("area", "not a number"),
+        ("annual_sales", float("nan")),
+        ("rent", -1),
+        ("gross_margin", 101),
+        ("capex", True),
+    ],
+)
+def test_invalid_imported_commercial_values_are_rejected(field, value):
+    payload = {
+        "projects": {
+            "Broken import": {
+                "location": "Synthetic test location",
+                field: value,
+            }
+        }
+    }
+
+    with pytest.raises(ValueError, match=rf"Broken import.*{field}"):
+        validate_project_library(payload)
+
+
+def test_numeric_strings_are_normalized_before_project_load():
+    imported = validate_project_library(
+        {
+            "projects": {
+                "Compatible import": {
+                    "location": "Synthetic test location",
+                    "area": "4500",
+                    "gross_margin": "50.5",
+                }
+            }
+        }
+    )
+
+    assert imported["Compatible import"]["area"] == 4500.0
+    assert imported["Compatible import"]["gross_margin"] == 50.5

@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, timezone
 
 
@@ -17,6 +18,18 @@ ALLOWED_STAGES = {
 LEGACY_STAGE_MAP = {
     "Approved": "Approval",
     "Rejected": "Cancelled",
+}
+
+COMMERCIAL_NUMERIC_FIELDS = {
+    "area": None,
+    "rent": None,
+    "capex": None,
+    "annual_sales": None,
+    "gross_margin": 100.0,
+    "payroll": None,
+    "utilities": None,
+    "logistics": None,
+    "other_opex": None,
 }
 
 
@@ -62,6 +75,26 @@ def validate_project_library(payload):
         location = project.get("location")
         if location is not None and not isinstance(location, str):
             raise ValueError(f"Project '{name}' has an invalid location value.")
+
+        for field, maximum in COMMERCIAL_NUMERIC_FIELDS.items():
+            if field not in project:
+                continue
+            raw_value = project[field]
+            if raw_value is None or raw_value == "":
+                project[field] = 0.0
+                continue
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                value = math.nan
+            if (
+                isinstance(raw_value, bool)
+                or not math.isfinite(value)
+                or value < 0
+                or (maximum is not None and value > maximum)
+            ):
+                raise ValueError(f"Project '{name}' has an invalid {field} value.")
+            project[field] = value
 
         stage = project.get("stage", "Screening")
         stage = LEGACY_STAGE_MAP.get(stage, stage)
