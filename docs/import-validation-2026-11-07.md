@@ -27,8 +27,9 @@ projects, permissions, keys, tariffs or deployment.
 
 ## Supabase availability
 
-At `2026-11-07T13:53:49Z`, project `rixvdctqqbmobfvazxay` accepted a read-only
-`SELECT 1`. The existing publishable Data API path was requested with
+At `2026-11-07T13:53:49Z`, project `rixvdctqqbmobfvazxay` reported
+`ACTIVE_HEALTHY` and accepted a read-only `SELECT 1`. The existing publishable
+Data API path was requested with
 `limit=0` and returned HTTP 401 without returning project rows. No database
 data, permission, key, tariff or schedule was changed. The successful SQL
 query does not guarantee that automatic pausing is disabled.
