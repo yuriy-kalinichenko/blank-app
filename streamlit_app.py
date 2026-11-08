@@ -1376,8 +1376,9 @@ def distance_km(lat1, lon1, lat2, lon2):
 
 def mapped_venue_name(name, kind, osm_type, osm_id):
     """An identity label is not an invented business name or verified premises."""
-    if name:
-        return name
+    clean_name = str(name or "").strip()
+    if clean_name:
+        return clean_name
     if kind in VENUE_TYPES and osm_type in {"node", "way", "relation"} and osm_id:
         return f"Unnamed mapped {kind.replace('_', ' ')} (OSM {osm_type}/{osm_id})"
     return ""
