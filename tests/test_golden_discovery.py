@@ -496,3 +496,12 @@ def test_explicit_unnamed_labels_do_not_merge_distinct_osm_venues(app):
     assert not app.same_retail_destination(venue(1), venue(2))
     assert app.mapped_venue_name("", "retail", "way", 1) == ""
     assert app.mapped_venue_name("", "mall", None, None) == ""
+
+
+def test_mapped_venue_name_normalizes_provider_whitespace(app):
+    assert app.mapped_venue_name("  Central Mall  ", "mall", "way", 7) == "Central Mall"
+    assert (
+        app.mapped_venue_name("   ", "mall", "way", 7)
+        == "Unnamed mapped mall (OSM way/7)"
+    )
+    assert app.mapped_venue_name("\t", "retail", "way", 7) == ""
