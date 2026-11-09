@@ -101,6 +101,24 @@ def test_failed_save_preserves_draft_reports_warning_and_can_retry(cloud_app):
     assert "_storage_error" not in at.session_state
 
 
+def test_create_with_existing_name_never_overwrites_cloud_project(cloud_app):
+    create, database, _ = cloud_app
+    at = create()
+    sign_in(at)
+    create_project(at, "Cloud Kyiv")
+    before = deepcopy(database["owner@example.test"])
+
+    click(at, "＋ New project")
+    at.text_input(key="project_name_input").set_value("Cloud Kyiv")
+    at.text_input(key="location_query").set_value("Different test site")
+    click(at, "Create project")
+
+    assert database["owner@example.test"] == before
+    assert at.session_state["project_library"]["Cloud Kyiv"] == before[0]["Cloud Kyiv"]
+    assert at.session_state["active_project_name"] is None
+    assert any("already exists" in item.value for item in at.warning)
+
+
 def test_stale_tab_preserves_newer_save_and_local_draft(cloud_app):
     create, database, _ = cloud_app
     first, second = create(), create()
