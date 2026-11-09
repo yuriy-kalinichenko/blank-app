@@ -2161,6 +2161,11 @@ with st.container(key="project_workspace"):
         if target_name is not None:
             if not target_name:
                 st.warning("Enter a project name before creating it.")
+            elif is_new_project and target_name in saved_projects:
+                st.warning(
+                    f"A project named {target_name} already exists. "
+                    "Load it to edit it, or choose a different name."
+                )
             elif not (st.session_state.get("location_query") or "").strip():
                 st.warning("Enter a location before saving the project.")
             else:

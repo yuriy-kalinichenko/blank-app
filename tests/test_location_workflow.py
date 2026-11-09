@@ -142,6 +142,21 @@ def test_create_save_load_and_rename_project(app_test):
     assert at.text_input(key="project_next_action").value == "Verify lease"
 
 
+def test_create_project_rejects_an_existing_name_without_overwriting(app_test):
+    at = app_test
+    existing_name = "QA Second"
+    before = json.loads(json.dumps(at.session_state["project_library"][existing_name]))
+
+    click(at, "＋ New project")
+    at.text_input(key="project_name_input").set_value(existing_name)
+    at.text_input(key="location_query").set_value("Different test site")
+    click(at, "Create project")
+
+    assert at.session_state["project_library"][existing_name] == before
+    assert at.session_state["active_project_name"] is None
+    assert any("already exists" in warning.value for warning in at.warning)
+
+
 def test_access_score_is_unknown_when_parking_source_is_missing(app_test):
     at = app_test
     at.session_state["qa_retail_outage"] = True

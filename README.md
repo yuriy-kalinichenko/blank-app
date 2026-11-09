@@ -48,6 +48,7 @@ The deployed app uses Supabase for authenticated, durable project storage. Open 
 - After sign-in, **Copy guest projects to my account** transfers projects from that open session. Conflicting names receive an import suffix; existing cloud records are preserved.
 - Existing JSON exports can be imported under **Advanced · import / export** after sign-in.
 - Save, rename, delete, workflow and commercial changes write to the same private cloud library.
+- Creating a project with an existing name is rejected; load that project to edit it or choose a different name.
 - Concurrent edits are guarded by a database revision. A stale tab cannot overwrite a newer save. Export its draft, reload the cloud library, then merge deliberately.
 - Failed writes retain the session draft and show an explicit warning, with retry, reload and export controls.
 - Signing out clears project state and tokens. Passwords are not stored in files or the project library.
