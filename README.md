@@ -76,6 +76,8 @@ In Supabase **Authentication → URL Configuration**, set the Site URL and allow
 
 The economics module uses explicit user assumptions for area, rent, CAPEX, sales, gross margin, payroll, utilities, logistics and other OPEX. It calculates annual rent, gross profit, EBITDA, sales density, occupancy cost, EBITDA margin and payback.
 
+The initial Karavan example uses the same 120,000 EUR/year utilities assumption as the saved Karavan baseline, so its first-run EBITDA is consistent with the project loaded from the library.
+
 Saved-project comparison uses only the assumptions stored in each project. The app does not create a hidden overall ranking.
 
 ## Methodology safeguards

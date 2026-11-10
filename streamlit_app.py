@@ -99,7 +99,7 @@ BASE_ECON_STATE = {
     "econ_sales": 5000000.0,
     "econ_margin": 50.0,
     "econ_payroll": 250000.0,
-    "econ_utilities": 12000.0,
+    "econ_utilities": 120000.0,
     "econ_logistics": 20000.0,
     "econ_other_opex": 100000.0,
     "econ_scenario_name": "Karavan Mall, Kyiv - Base",

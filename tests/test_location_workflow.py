@@ -72,6 +72,13 @@ def analyze(at, query):
     return at.session_state["analysis"]
 
 
+def test_initial_karavan_economics_match_the_saved_baseline(app_test):
+    at = app_test
+    saved = at.session_state["project_library"]["Karavan Mall, Kyiv - Base"]
+
+    assert at.session_state["econ_utilities"] == saved["utilities"]
+
+
 def test_provider_failure_does_not_reuse_another_city(app_test):
     at = app_test
     assert analyze(at, "Kyiv")["retail"]
