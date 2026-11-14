@@ -72,3 +72,19 @@ def test_invalid_stage_is_safely_normalized():
 
     assert imported["Test"]["stage"] == "Screening"
     assert imported["Test"]["schema_version"] == 2
+
+
+def test_import_rejects_project_names_that_collide_after_trimming():
+    payload = {
+        "projects": {
+            "Kyiv Site": {"location": "Karavan Mall, Kyiv"},
+            " Kyiv Site ": {"location": "River Mall, Kyiv"},
+        }
+    }
+
+    try:
+        validate_project_library(payload)
+    except ValueError as exc:
+        assert "duplicate project name" in str(exc).lower()
+    else:
+        raise AssertionError("A normalized name collision must not discard a project")
