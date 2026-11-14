@@ -57,6 +57,10 @@ def validate_project_library(payload):
         name = str(raw_name).strip()
         if not name or not isinstance(raw_project, dict):
             continue
+        if name in normalized:
+            raise ValueError(
+                f"Backup contains a duplicate project name after trimming: '{name}'."
+            )
 
         project = dict(raw_project)
         location = project.get("location")
