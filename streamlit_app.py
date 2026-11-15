@@ -1218,6 +1218,17 @@ def parse_commercial_upload(uploaded_file):
             if value != "":
                 parsed[field] = value
 
+    field_labels = {
+        "area": "Store area",
+        "rent": "Rent",
+        "capex": "CAPEX",
+        "annual_sales": "Annual sales",
+        "gross_margin": "Gross margin",
+        "payroll": "Payroll",
+        "utilities": "Utilities",
+        "logistics": "Logistics",
+        "other_opex": "Other OPEX",
+    }
     result = {}
     for field, value in parsed.items():
         if field == "currency":
@@ -1226,8 +1237,14 @@ def parse_commercial_upload(uploaded_file):
                 result[field] = currency
         else:
             number = _parse_commercial_number(value)
-            if number is not None:
-                result[field] = number
+            label = field_labels[field]
+            if number is None or not math.isfinite(number):
+                raise ValueError(f"{label} must be a finite number.")
+            if number < 0:
+                raise ValueError(f"{label} cannot be negative.")
+            if field == "gross_margin" and number > 100:
+                raise ValueError("Gross margin must be between 0 and 100.")
+            result[field] = number
 
     if not result:
         raise ValueError(
