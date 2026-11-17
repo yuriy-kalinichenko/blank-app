@@ -53,6 +53,10 @@ def worldpop_population_geojson(*args, **kwargs):
 
 def worldpop_children_geojson(*args, **kwargs):
     raise RuntimeError("Test age provider unavailable")
+
+def render_map(points, **kwargs):
+    calls = st.session_state.setdefault("qa_render_map_calls", [])
+    calls.append({"points": points, **kwargs})
 '''
     marker = "for state_key, state_value in BASE_ECON_STATE.items():"
     source = source.replace(marker, providers + "\nSCENARIO_FILE = " + repr(str(tmp_path / "projects.json")) + "\n\n" + marker, 1)
@@ -157,3 +161,16 @@ def test_access_metrics_respect_displayed_radius(app_test):
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Transit stops / 1.5 km"] == "1"
     assert metrics["Named major roads / 1.5 km"] == "1"
+
+
+def test_site_and_competitor_map_fits_all_scanned_locations(app_test):
+    at = app_test
+    analyze(at, "Kyiv")
+    site_map = next(
+        call
+        for call in at.session_state["qa_render_map_calls"]
+        if call.get("title") == "Site and nearby retail map"
+    )
+    assert site_map["fit"] is True
+    assert any(point.get("selected") for point in site_map["points"])
+    assert any(point.get("kind") == "competitor" for point in site_map["points"])
