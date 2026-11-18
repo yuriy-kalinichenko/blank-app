@@ -72,3 +72,38 @@ def test_invalid_stage_is_safely_normalized():
 
     assert imported["Test"]["stage"] == "Screening"
     assert imported["Test"]["schema_version"] == 2
+
+
+def test_invalid_project_record_rejects_entire_backup():
+    payload = {
+        "projects": {
+            "Valid project": {
+                "location": "Kyiv",
+                "stage": "Screening",
+            },
+            "Damaged project": "not a project object",
+        }
+    }
+
+    try:
+        validate_project_library(payload)
+    except ValueError as exc:
+        assert "Damaged project" in str(exc)
+    else:
+        raise AssertionError("A partially damaged backup must not be imported")
+
+
+def test_empty_project_name_rejects_entire_backup():
+    payload = {
+        "projects": {
+            "Valid project": {"location": "Kyiv"},
+            "   ": {"location": "Tbilisi"},
+        }
+    }
+
+    try:
+        validate_project_library(payload)
+    except ValueError as exc:
+        assert "empty name" in str(exc)
+    else:
+        raise AssertionError("A backup with an empty project name must not be imported")
