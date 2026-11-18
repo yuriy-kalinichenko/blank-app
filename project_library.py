@@ -55,8 +55,10 @@ def validate_project_library(payload):
     normalized = {}
     for raw_name, raw_project in raw_projects.items():
         name = str(raw_name).strip()
-        if not name or not isinstance(raw_project, dict):
-            continue
+        if not name:
+            raise ValueError("A project in the backup has an empty name.")
+        if not isinstance(raw_project, dict):
+            raise ValueError(f"Project '{name}' is not a valid project object.")
 
         project = dict(raw_project)
         location = project.get("location")
