@@ -2256,18 +2256,26 @@ with st.container(key="project_workspace"):
             use_container_width=True,
             key="project_delete_confirm_v102",
         ):
+            projects_before_delete = dict(saved_projects)
             saved_projects.pop(confirm_delete, None)
             st.session_state["project_library"] = saved_projects
             try:
                 persist_saved_scenarios(saved_projects)
-            except OSError:
-                pass
-            st.session_state.pop("_confirm_delete_project", None)
-            if st.session_state.get("active_project_name") == confirm_delete:
-                reset_project_state()
-            st.session_state["_pending_project_select"] = PROJECT_SELECTOR_PLACEHOLDER
-            st.session_state["_project_flash"] = f"Deleted project: {confirm_delete}"
-            st.rerun()
+            except OSError as exc:
+                # Deletion is destructive: keep the visible session copy when
+                # durable storage did not accept it, and leave confirmation
+                # open so the owner can retry without recreating the project.
+                saved_projects.clear()
+                saved_projects.update(projects_before_delete)
+                st.session_state["project_library"] = saved_projects
+                st.error(f"{confirm_delete} was not deleted. {exc}")
+            else:
+                st.session_state.pop("_confirm_delete_project", None)
+                if st.session_state.get("active_project_name") == confirm_delete:
+                    st.session_state["_pending_new_project"] = True
+                st.session_state["_pending_project_select"] = PROJECT_SELECTOR_PLACEHOLDER
+                st.session_state["_project_flash"] = f"Deleted project: {confirm_delete}"
+                st.rerun()
 
         if cancel_col.button(
             "Cancel",

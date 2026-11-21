@@ -101,6 +101,28 @@ def test_failed_save_preserves_draft_reports_warning_and_can_retry(cloud_app):
     assert "_storage_error" not in at.session_state
 
 
+def test_failed_delete_keeps_project_visible_and_can_retry(cloud_app):
+    create, database, options = cloud_app
+    at = create()
+    sign_in(at)
+    create_project(at, "Cloud Kyiv")
+    before = deepcopy(database["owner@example.test"])
+
+    options["offline"] = True
+    click(at, "Delete")
+    click(at, "Yes, delete")
+
+    assert database["owner@example.test"] == before
+    assert "Cloud Kyiv" in at.session_state["project_library"]
+    assert at.session_state["active_project_name"] == "Cloud Kyiv"
+    assert any("was not deleted" in item.value for item in at.error)
+
+    options["offline"] = False
+    click(at, "Yes, delete")
+    assert "Cloud Kyiv" not in database["owner@example.test"][0]
+    assert "Cloud Kyiv" not in at.session_state["project_library"]
+
+
 def test_stale_tab_preserves_newer_save_and_local_draft(cloud_app):
     create, database, _ = cloud_app
     first, second = create(), create()
