@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import streamlit as st
 from map_view import render_map
+from local_storage import write_json_atomically
 from golden_context import ScreeningBudgetExceeded, load_adaptive_tile, map_context
 from cloud_storage import CloudError, load_config as load_cloud_config
 from cloud_workspace import render_cloud_workspace, save_cloud_library
@@ -1027,8 +1028,7 @@ def persist_saved_scenarios(data):
         save_cloud_library(CLOUD_CONFIG, data)
         return
     try:
-        with open(SCENARIO_FILE, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, indent=2)
+        write_json_atomically(SCENARIO_FILE, data)
         st.session_state.pop("_storage_error", None)
     except OSError:
         st.session_state["_storage_error"] = "Local server storage is unavailable. Export a backup."
