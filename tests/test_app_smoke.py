@@ -151,7 +151,9 @@ def test_project_workflow_metadata_is_saved():
     source = APP_PATH.read_text(encoding="utf-8")
     for field in ["next_action", "owner", "deadline"]:
         assert f'project["{field}"]' in source or f'existing_project["{field}"]' in source
-    assert 'pipeline_project["stage"] = pipeline_stage' in source
+    assert 'updated_project["stage"] = pipeline_stage' in source
+    assert 'persist_saved_scenarios(updated_projects)' in source
+    assert 'st.session_state["project_library"] = updated_projects' in source
     assert 'persist_saved_scenarios(saved_projects)' in source
 
 

@@ -114,6 +114,28 @@ def test_stale_tab_preserves_newer_save_and_local_draft(cloud_app):
     assert any("another session" in item.value for item in second.warning)
 
 
+def test_pipeline_cloud_failure_keeps_persisted_and_session_project(cloud_app):
+    create, database, options = cloud_app
+    at = create()
+    sign_in(at)
+    create_project(at, "Cloud A")
+    click(at, "＋ New project")
+    create_project(at, "Cloud B")
+    before_remote = deepcopy(database["owner@example.test"][0]["Cloud A"])
+    before_session = deepcopy(at.session_state["project_library"]["Cloud A"])
+
+    at.selectbox(key="pipeline_stage__Cloud_A").select("Negotiation")
+    at.text_input(key="pipeline_action__Cloud_A").set_value("Review lease")
+    options["offline"] = True
+    at.button(key="pipeline_save__Cloud_A").click().run()
+
+    assert not at.exception
+    assert database["owner@example.test"][0]["Cloud A"] == before_remote
+    assert at.session_state["project_library"]["Cloud A"] == before_session
+    assert any("Workflow was not saved" in item.value for item in at.error)
+    assert not any("Workflow updated" in item.value for item in at.success)
+
+
 def test_transfer_preserves_name_collisions_and_logout_clears_account(cloud_app):
     create, database, _ = cloud_app
     at = create()

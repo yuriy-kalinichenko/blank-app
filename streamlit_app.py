@@ -2513,22 +2513,30 @@ with st.expander("Portfolio · comparison & project pipeline", expanded=False):
                 key=f"pipeline_save__{pipeline_key}",
                 use_container_width=True,
             ):
-                pipeline_project["stage"] = pipeline_stage
-                pipeline_project["next_action"] = pipeline_action.strip()
-                pipeline_project["owner"] = pipeline_owner.strip()
-                pipeline_project["deadline"] = pipeline_deadline.strip()
-                pipeline_project["updated_at"] = datetime.now(timezone.utc).isoformat()
-                saved_projects[pipeline_name] = pipeline_project
-                st.session_state["project_library"] = saved_projects
+                updated_project = dict(pipeline_project)
+                updated_project["stage"] = pipeline_stage
+                updated_project["next_action"] = pipeline_action.strip()
+                updated_project["owner"] = pipeline_owner.strip()
+                updated_project["deadline"] = pipeline_deadline.strip()
+                updated_project["updated_at"] = datetime.now(timezone.utc).isoformat()
+                updated_projects = dict(saved_projects)
+                updated_projects[pipeline_name] = updated_project
                 try:
-                    persist_saved_scenarios(saved_projects)
-                except OSError:
-                    pass
-                if st.session_state.get("active_project_name") == pipeline_name:
-                    st.session_state["_pending_project_load"] = pipeline_name
-                st.session_state["_pending_project_select"] = pipeline_name
-                st.session_state["_project_flash"] = f"Workflow updated: {pipeline_name} · {pipeline_stage}"
-                st.rerun()
+                    persist_saved_scenarios(updated_projects)
+                except (OSError, CloudError):
+                    st.error(
+                        "Workflow was not saved. Storage is unavailable; "
+                        "the existing project was kept unchanged. Retry or export a backup."
+                    )
+                else:
+                    st.session_state["project_library"] = updated_projects
+                    if st.session_state.get("active_project_name") == pipeline_name:
+                        st.session_state["_pending_project_load"] = pipeline_name
+                    st.session_state["_pending_project_select"] = pipeline_name
+                    st.session_state["_project_flash"] = (
+                        f"Workflow updated: {pipeline_name} · {pipeline_stage}"
+                    )
+                    st.rerun()
 
             if p_details.button(
                 "Details",
