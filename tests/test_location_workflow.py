@@ -55,7 +55,25 @@ def worldpop_children_geojson(*args, **kwargs):
     raise RuntimeError("Test age provider unavailable")
 '''
     marker = "for state_key, state_value in BASE_ECON_STATE.items():"
-    source = source.replace(marker, providers + "\nSCENARIO_FILE = " + repr(str(tmp_path / "projects.json")) + "\n\n" + marker, 1)
+    storage_guard = '''
+_qa_persist_saved_scenarios = persist_saved_scenarios
+def persist_saved_scenarios(data):
+    if st.session_state.get("qa_storage_outage"):
+        st.session_state["_storage_error"] = "Synthetic storage outage."
+        raise OSError("Synthetic storage outage.")
+    return _qa_persist_saved_scenarios(data)
+'''
+    source = source.replace(
+        marker,
+        providers
+        + "\nSCENARIO_FILE = "
+        + repr(str(tmp_path / "projects.json"))
+        + "\n"
+        + storage_guard
+        + "\n"
+        + marker,
+        1,
+    )
     at = AppTest.from_string(source, default_timeout=15).run()
     assert not at.exception
     return at
@@ -157,3 +175,32 @@ def test_access_metrics_respect_displayed_radius(app_test):
     metrics = {metric.label: metric.value for metric in at.metric}
     assert metrics["Transit stops / 1.5 km"] == "1"
     assert metrics["Named major roads / 1.5 km"] == "1"
+
+
+def test_pipeline_save_failure_preserves_project_and_reports_error(app_test):
+    at = app_test
+    project_name = "QA Second"
+    before = dict(at.session_state["project_library"][project_name])
+
+    at.selectbox(key="pipeline_stage__QA_Second").select("Negotiation")
+    at.text_input(key="pipeline_action__QA_Second").set_value("Review lease")
+    at.text_input(key="pipeline_owner__QA_Second").set_value("QA owner")
+    at.text_input(key="pipeline_deadline__QA_Second").set_value("2026-12-15")
+    at.session_state["qa_storage_outage"] = True
+
+    at.button(key="pipeline_save__QA_Second").click().run()
+
+    assert not at.exception
+    assert at.session_state["project_library"][project_name] == before
+    assert any("Workflow was not saved" in item.value for item in at.error)
+    assert not any("Workflow updated" in item.value for item in at.success)
+
+    at.session_state["qa_storage_outage"] = False
+    at.button(key="pipeline_save__QA_Second").click().run()
+
+    assert not at.exception
+    saved = at.session_state["project_library"][project_name]
+    assert saved["stage"] == "Negotiation"
+    assert saved["next_action"] == "Review lease"
+    assert saved["owner"] == "QA owner"
+    assert saved["deadline"] == "2026-12-15"
